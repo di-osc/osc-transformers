@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "osc-transformers"
+version = "0.1.0"
+description = "以配置文件的形式构建transformer模型"
+authors = ["wangmengdi <wangmengdi@smart-insight.com.cn>"]
+license = "MIT"
+readme = "README.md"
+packages = [{include = "osc_transformers"}]
+
+[tool.poetry.dependencies]
+python = ">=3.7"
+confection = "^0.1.3"
+lightning-utilities = "^0.9.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
