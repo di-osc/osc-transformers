@@ -3,11 +3,9 @@ import torch
 from typing import Optional, Tuple
 from ..config import registry
 import math
-from lightning_utilities.core.imports import RequirementCache
 
-FlashAttention2Available = RequirementCache("flash-attn>=2.0.0.post1")
+
 RoPECache = Tuple[torch.Tensor, torch.Tensor]
-
 
 class KVCache(nn.Module):
     def __init__(self, 
@@ -29,9 +27,9 @@ class KVCache(nn.Module):
         return k, v
     
     
-@registry.layers.register("causal_attention.rope")  
-class RoPECaulsalAttention(nn.Module):
-    """融合了RoPE,多头因果注意力机制,兼容分组注意力查询"""
+@registry.layers.register("SelfAttention.v1")  
+class SelfAttention(nn.Module):
+    """自注意力机制融合了RoPE,多头注意力,分组注意力"""
     # 以 `n_head=4`举例说明:
     # ┌───┐┌───┐┌───┐┌───┐     ┌───┐    ┌───┐             ┌───┐
     # │ v ││ v ││ v ││ v │     │ v │    │ v │             │ v │
@@ -49,7 +47,7 @@ class RoPECaulsalAttention(nn.Module):
     #   n_query_groups=4       n_query_groups=2      n_query_groups=1
     
     def __init__(self, 
-                 dim: int, 
+                 n_in: int, 
                  n_heads: int,
                  n_query_groups: Optional[int] = None,
                  q_bias: bool = False,
@@ -57,40 +55,41 @@ class RoPECaulsalAttention(nn.Module):
                  v_bias: bool = False,
                  o_bias: bool = False) -> None:
         super().__init__()
-        assert dim % n_heads == 0, f"dim {dim} must be divisible by n_heads {n_heads}"
-        self.dim = dim
+        assert n_in % n_heads == 0, f"dim {n_in} must be divisible by n_heads {n_heads}"
         self.n_heads = n_heads
-        self.head_size = dim // n_heads
+        self.head_size = n_in // n_heads
         self.n_query_groups = n_query_groups if n_query_groups else n_heads
-        self.q_proj = nn.Linear(self.dim, self.n_heads * self.head_size, bias=q_bias)
-        self.k_proj = nn.Linear(self.dim, self.n_query_groups * self.head_size, bias=k_bias)
-        self.v_proj = nn.Linear(self.dim, self.n_query_groups * self.head_size, bias=v_bias)
-        self.o_proj = nn.Linear(self.dim, self.n_query_groups * self.head_size, bias=o_bias)
+        self.q_proj = nn.Linear(n_in, self.n_heads * self.head_size, bias=q_bias)
+        self.k_proj = nn.Linear(n_in, self.n_query_groups * self.head_size, bias=k_bias)
+        self.v_proj = nn.Linear(n_in, self.n_query_groups * self.head_size, bias=v_bias)
+        self.o_proj = nn.Linear(n_in, n_in, bias=o_bias)
         
         self.kv_cache: Optional[KVCache] = None
 
 
     def forward(self,
                 x: torch.Tensor,
-                cos: torch.Tensor,
-                sin: torch.Tensor,
+                cos: Optional[torch.Tensor] = None,
+                sin: Optional[torch.Tensor] = None,
                 mask: Optional[torch.Tensor] = None,
-                input_pos: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Optional[KVCache]]:
+                input_pos: Optional[torch.Tensor] = None,
+                **kwargs) -> Tuple[torch.Tensor, Optional[KVCache]]:
         
         B, T, C = x.size()  # batch size, sequence length, embedding dimensionality (n_embd)
 
-        q = self.q_proj(x).reshape(B, T, self.n_heads, self.head_size).permute(0, 2, 1, 3)
-        k = self.k_proj(x).reshape(B, T, self.n_query_groups, self.head_size).permute(0, 2, 1, 3)
-        v = self.v_proj(x).reshape(B, T, self.n_query_groups, self.head_size).permute(0, 2, 1, 3)
-
-        q = apply_rope(q, cos, sin)
-        k = apply_rope(k, cos, sin)
+        q: torch.Tensor = self.q_proj(x).reshape(B, T, self.n_heads, self.head_size).permute(0, 2, 1, 3)
+        k: torch.Tensor = self.k_proj(x).reshape(B, T, self.n_query_groups, self.head_size).permute(0, 2, 1, 3)
+        v: torch.Tensor = self.v_proj(x).reshape(B, T, self.n_query_groups, self.head_size).permute(0, 2, 1, 3)
+        
+        if (cos is not None) and (sin is not None):
+            q = apply_rope(q, cos, sin)
+            k = apply_rope(k, cos, sin)
+            
         # repeat k and v if necessary
         if self.n_query_groups != 1 and self.n_query_groups != self.n_heads:  # doing this would require a full kv cache with MQA (inefficient!)
             # for MHA this is a no-op
             k = k[:,:,None,:,:].expand(-1, -1, self.n_heads // self.n_query_groups, -1, -1).reshape(B, self.n_heads, T, self.head_size)
             v = v[:,:,None,:,:].expand(-1, -1, self.n_heads // self.n_query_groups, -1, -1).reshape(B, self.n_heads, T, self.head_size)
-        
         
         if input_pos is not None:
             if not isinstance(self.kv_cache, KVCache):
@@ -110,19 +109,6 @@ class RoPECaulsalAttention(nn.Module):
         self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: Optional[torch.Tensor] = None
     ):
         scale = 1.0 / math.sqrt(self.head_size)
-        if (
-            FlashAttention2Available
-            and mask is None
-            and q.device.type == "cuda"
-            and q.dtype in (torch.float16, torch.bfloat16)
-        ):
-            from flash_attn import flash_attn_func
-
-            # flash-attn requires (B, T, nh, hs)
-            q = q.transpose(1, 2)
-            k = k.transpose(1, 2)
-            v = v.transpose(1, 2)
-            return flash_attn_func(q, k, v, dropout_p=0.0, softmax_scale=scale, causal=True)
         y = torch.nn.functional.scaled_dot_product_attention(
             q, k, v, attn_mask=mask, dropout_p=0.0, scale=scale, is_causal=mask is None
         )

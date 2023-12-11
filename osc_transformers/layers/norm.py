@@ -2,7 +2,7 @@ import torch
 from ..config import registry
 
 
-@registry.layers.register("rmsnorm")
+@registry.layers.register("RMSNorm")
 class RMSNorm(torch.nn.Module):
     def __init__(self,
                  n_in: int,

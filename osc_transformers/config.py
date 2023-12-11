@@ -4,7 +4,16 @@ from confection import Config
 
 
 class registry(confection.registry):
-    layers = catalogue.create("osc_transformers", "layers", entry_points=True)
+    layers = catalogue.create(
+        "osc", 
+        "layers", 
+        entry_points=True
+    )
+    architectures = catalogue.create(
+        "osc", 
+        "architectures", 
+        entry_points=True
+    )
 
     @classmethod
     def create(cls, registry_name: str, entry_points: bool = False) -> None:
@@ -12,7 +21,7 @@ class registry(confection.registry):
         if hasattr(cls, registry_name):
             raise ValueError(f"Registry '{registry_name}' already exists")
         reg = catalogue.create(
-            "osc_transformers", registry_name, entry_points=entry_points
+            "osc", registry_name, entry_points=entry_points
         )
         setattr(cls, registry_name, reg)
 

@@ -1,5 +1,4 @@
 from ..config import registry
-from .block import DecoderBlock
 import torch.nn as nn
 from typing import Optional, Tuple
 import torch
@@ -7,17 +6,56 @@ import torch
 RoPECache = Tuple[torch.Tensor, torch.Tensor]
 
 
+class DecoderBlock(nn.Module):
+    def __init__(self,
+                 attention: nn.Module,
+                 attention_norm: nn.Module,
+                 mlp: nn.Module,
+                 mlp_norm: nn.Module,
+                 pre_norm: bool = True):
+        super().__init__()
+        self.attention = attention
+        self.attention_norm = attention_norm
+        self.mlp = mlp
+        self.mlp_norm = mlp_norm
+        self.pre_norm = pre_norm
+        
+    def build_kv_cache(self, batch_size: int, max_seq_length: int, device: Optional[torch.device] = None, dtype: Optional[torch.dtype] = None):
+        self.attention.build_kv_cache(batch_size=batch_size, max_seq_length=max_seq_length, device=device, dtype=dtype)
+        
+    def clear_kv_cache(self):
+        self.attention.kv_cache = None
+        
+    def forward(
+        self,
+        x,
+        input_pos: Optional[torch.Tensor] = None,
+        mask: Optional[torch.Tensor] = None,
+        **kwargs
+    ):
+        if self.pre_norm:
+            x = self.attention(self.attention_norm(x), input_pos=input_pos, mask=mask, **kwargs) + x
+            x = x + self.mlp(self.mlp_norm(x))
+        else:
+            x = self.attention_norm(self.attention(x, input_pos=input_pos, mask=mask, **kwargs)) + x
+            x = self.mlp_norm(self.mlp(x)) + x
+        return x 
+
+
+@registry.architectures.register("Decoder.v1")
 class Decoder(nn.Module):
     def __init__(self, 
-                 token_embeddings: nn.Module,
+                 n_token_embeddings: int,
+                 embedding_size: int,
                  n_blocks: int,
                  block_size: int,
-                 block: DecoderBlock,
-                 head: nn.Module) -> None:
+                 attention: nn.Module,
+                 mlp: nn.Module,
+                 norm: nn.Module) -> None:
         super().__init__()
-        self.token_embeddings = token_embeddings
-        self.blocks = nn.ModuleList([block for _ in range(n_blocks)])
-        self.head = head
+        self.embeddings = nn.Embedding(n_token_embeddings, embedding_dim=embedding_size)
+        self.blocks = nn.ModuleList([DecoderBlock(attention=attention, attention_norm=norm, mlp=mlp, mlp_norm=norm) for _ in range(n_blocks)])
+        self.head = nn.Linear(embedding_size, n_token_embeddings)
         
         self.block_size = block_size
         self.max_seq_length = block_size
