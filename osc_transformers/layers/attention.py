@@ -27,10 +27,10 @@ class KVCache(nn.Module):
         return k, v
     
     
-@registry.layers.register("SelfAttention.v1")  
-class SelfAttention(nn.Module):
+@registry.layers.register("CausalSelfAttention")  
+class CausalSelfAttention(nn.Module):
     """自注意力机制融合了RoPE,多头注意力,分组注意力"""
-    # 以 `n_head=4`举例说明:
+    # 以 `n_heads=4`举例说明:
     # ┌───┐┌───┐┌───┐┌───┐     ┌───┐    ┌───┐             ┌───┐
     # │ v ││ v ││ v ││ v │     │ v │    │ v │             │ v │
     # └───┘└───┘└───┘└───┘     └───┘    └───┘             └───┘
@@ -49,11 +49,11 @@ class SelfAttention(nn.Module):
     def __init__(self, 
                  n_in: int, 
                  n_heads: int,
-                 n_query_groups: Optional[int] = None,
                  q_bias: bool = False,
                  k_bias: bool = False,
                  v_bias: bool = False,
-                 o_bias: bool = False) -> None:
+                 o_bias: bool = False,
+                 n_query_groups: Optional[int] = None) -> None:
         super().__init__()
         assert n_in % n_heads == 0, f"dim {n_in} must be divisible by n_heads {n_heads}"
         self.n_heads = n_heads

@@ -10,15 +10,15 @@ class DecoderBlock(nn.Module):
     def __init__(self,
                  attention: nn.Module,
                  attention_norm: nn.Module,
-                 mlp: nn.Module,
-                 mlp_norm: nn.Module,
-                 pre_norm: bool = True):
+                 feedforward: nn.Module,
+                 feedforward_norm: nn.Module,
+                 prenorm: bool = True):
         super().__init__()
         self.attention = attention
         self.attention_norm = attention_norm
-        self.mlp = mlp
-        self.mlp_norm = mlp_norm
-        self.pre_norm = pre_norm
+        self.feedforward = feedforward
+        self.feedforward_norm = feedforward_norm
+        self.prenorm = prenorm
         
     def build_kv_cache(self, batch_size: int, max_seq_length: int, device: Optional[torch.device] = None, dtype: Optional[torch.dtype] = None):
         self.attention.build_kv_cache(batch_size=batch_size, max_seq_length=max_seq_length, device=device, dtype=dtype)
@@ -33,29 +33,39 @@ class DecoderBlock(nn.Module):
         mask: Optional[torch.Tensor] = None,
         **kwargs
     ):
-        if self.pre_norm:
+        if self.prenorm:
             x = self.attention(self.attention_norm(x), input_pos=input_pos, mask=mask, **kwargs) + x
-            x = x + self.mlp(self.mlp_norm(x))
+            x = x + self.feedforward(self.feedforward_norm(x))
         else:
             x = self.attention_norm(self.attention(x, input_pos=input_pos, mask=mask, **kwargs)) + x
-            x = self.mlp_norm(self.mlp(x)) + x
+            x = self.feedforward_norm(self.feedforward(x)) + x
         return x 
 
 
-@registry.architectures.register("Decoder.v1")
-class Decoder(nn.Module):
+@registry.architectures.register("TransformerDecoder")
+class TransformerDecoder(nn.Module):
     def __init__(self, 
-                 n_token_embeddings: int,
-                 embedding_size: int,
                  n_blocks: int,
                  block_size: int,
+                 embedding: nn.Module,
                  attention: nn.Module,
-                 mlp: nn.Module,
-                 norm: nn.Module) -> None:
+                 feedforward: nn.Module,
+                 head: nn.Module,
+                 norm: nn.Module,
+                 prenorm: bool) -> None:
         super().__init__()
-        self.embeddings = nn.Embedding(n_token_embeddings, embedding_dim=embedding_size)
-        self.blocks = nn.ModuleList([DecoderBlock(attention=attention, attention_norm=norm, mlp=mlp, mlp_norm=norm) for _ in range(n_blocks)])
-        self.head = nn.Linear(embedding_size, n_token_embeddings)
+        
+        self.prenorm = prenorm
+        self.embedding = embedding
+        self.blocks = nn.ModuleList(
+            [DecoderBlock(attention=attention,
+                          attention_norm=norm,
+                          feedforward=feedforward,
+                          feedforward_norm=norm,
+                          prenorm=prenorm) for _ in range(n_blocks)]
+        )
+        self.head_norm = norm if self.prenorm else None
+        self.head = head
         
         self.block_size = block_size
         self.max_seq_length = block_size
@@ -70,6 +80,14 @@ class Decoder(nn.Module):
         if value > self.block_size:
             raise ValueError("max_seq_length must be less than or equal to block_size")
         self._max_seq_length = value
+        if not hasattr(self, "sin") or not hasattr(self, "cos"):
+            cos, sin = self.build_rope_cache()
+            self.register_buffer("cos", cos, persistent=False)
+            self.register_buffer("sin", sin, persistent=False)
+        elif value != self.cos.shape[0]:
+            cos, sin = self.build_rope_cache(device=self.cos.device)
+            self.cos = cos
+            self.sin = sin
         
     def build_caches(self, 
                        batch_size: int, 
@@ -89,11 +107,16 @@ class Decoder(nn.Module):
             block: DecoderBlock
             block.clear_kv_cache()
         self.mask_cache = None
-
-
-@registry.layers.register("decoder.roformer")
-class RoformerDecoder(Decoder):
         
+    def build_rope_cache(self, device: Optional[torch.device] = None):
+        head_size = self.blocks[0].attention.head_size
+        cos, sin = build_rope_cache(seq_len=self.max_seq_length, 
+                                    n_elem=head_size, 
+                                    dtype=torch.get_default_dtype(), 
+                                    device=device)
+        return cos, sin
+    
+    
     def forward(self, x, input_pos: Optional[torch.Tensor] = None):
         T = x.size(1)
         if self.max_seq_length < T:
@@ -109,40 +132,14 @@ class RoformerDecoder(Decoder):
             cos = self.cos[:T]
             sin = self.sin[:T]
             mask = None
-        x = self.token_embeddings(x)
+        x = self.embedding(x)
         for block in self.blocks:
             x = block(x, input_pos=input_pos, cos=cos, sin=sin, mask=mask)
+        if self.prenorm:
+            x = self.head_norm(x)
         x = self.head(x)
         return x
-    
-    @property
-    def max_seq_length(self):
-        return self._max_seq_length
-    
-    @max_seq_length.setter
-    def max_seq_length(self, value):
-        if value > self.block_size:
-            raise ValueError("max_seq_length must be less than or equal to block_size")
-        self._max_seq_length = value
-        if not hasattr(self, "sin") or not hasattr(self, "cos"):
-            cos, sin = self.build_rope_cache()
-            self.register_buffer("cos", cos, persistent=False)
-            self.register_buffer("sin", sin, persistent=False)
-        elif value != self.cos.shape[0]:
-            cos, sin = self.build_rope_cache(device=self.cos.device)
-            self.cos = cos
-            self.sin = sin
-        
-    def build_rope_cache(self, device: Optional[torch.device] = None):
-        head_size = self.blocks[0].attention.head_size
-        cos, sin = build_rope_cache(seq_len=self.max_seq_length, 
-                                    n_elem=head_size, 
-                                    dtype=torch.get_default_dtype(), 
-                                    device=device)
-        return cos, sin
             
-        
-        
     
 def build_rope_cache(seq_len: int, n_elem: int, dtype: torch.dtype, device: torch.device, base: int = 10000, condense_ratio: int = 1) -> RoPECache:
     """Enhanced Transformer with Rotary Position Embedding.
