@@ -26,6 +26,10 @@ class KVCache(nn.Module):
         v = self.v.index_copy_(2, input_pos, v)
         return k, v
     
+    def reset_parameters(self) -> None:
+        torch.nn.init.zeros_(self.k)
+        torch.nn.init.zeros_(self.v)
+    
     
 @registry.layers.register("CausalSelfAttention")  
 class CausalSelfAttention(nn.Module):
@@ -72,8 +76,7 @@ class CausalSelfAttention(nn.Module):
                 cos: Optional[torch.Tensor] = None,
                 sin: Optional[torch.Tensor] = None,
                 mask: Optional[torch.Tensor] = None,
-                input_pos: Optional[torch.Tensor] = None,
-                **kwargs) -> Tuple[torch.Tensor, Optional[KVCache]]:
+                input_pos: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Optional[KVCache]]:
         
         B, T, C = x.size()  # batch size, sequence length, embedding dimensionality (n_embd)
 
@@ -96,14 +99,13 @@ class CausalSelfAttention(nn.Module):
                 raise TypeError("You need to call `model.build_kv_caches()`")
             k, v = self.kv_cache(input_pos=input_pos, k=k, v=v)
 
-        y = self.scaled_dot_product_attention(q, k, v, mask=mask)
+        o = self.scaled_dot_product_attention(q, k, v, mask=mask)
 
-        y = y.reshape(B, T, C)  # re-assemble all head outputs side by side
+        o = o.reshape(B, T, C)  # re-assemble all head outputs side by side
 
-        # output projection
-        y = self.o_proj(y)
+        o = self.o_proj(o)
 
-        return y
+        return o
 
     def scaled_dot_product_attention(
         self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: Optional[torch.Tensor] = None
@@ -115,10 +117,10 @@ class CausalSelfAttention(nn.Module):
         return y.transpose(1, 2)
     
     def build_kv_cache(self, 
-                     batch_size: int, 
-                     max_seq_length: int, 
-                     device: Optional[torch.device] = None, 
-                     dtype: Optional[torch.dtype] = None) -> None:
+                       batch_size: int, 
+                       max_seq_length: int, 
+                       device: Optional[torch.device] = None, 
+                       dtype: Optional[torch.dtype] = None) -> None:
         n_heads = 1 if self.n_query_groups == 1 else self.n_heads
         k_shape = (batch_size, n_heads, max_seq_length, self.head_size)
         v_shape = (batch_size, n_heads, max_seq_length, self.head_size)
@@ -131,4 +133,4 @@ def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.T
     x2 = x[..., head_size // 2 :]  # (B, nh, T, hs/2)
     rotated = torch.cat((-x2, x1), dim=-1)  # (B, nh, T, hs)
     roped = (x * cos) + (rotated * sin)
-    return roped.type_as(x) 
+    return roped.to(x.dtype) 

@@ -1,1 +1,1 @@
-from .decoder import TransformerDecoder
+from .transformer.decoder import TransformerDecoder

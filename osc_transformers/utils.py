@@ -9,7 +9,6 @@ import torch.nn as nn
 import torch.utils._device
 from torch.serialization import normalize_storage_type
 from lightning.fabric.utilities.load import _lazy_load as lazy_load
-from .config import Config
 from typing import Dict
 
 
@@ -220,7 +219,7 @@ class WeightMap:
         pass
     
     @classmethod
-    def get_llama2_7b_weight_map(self) -> Dict:
+    def get_llama2_weight_map(self, num_blocks: int = 32) -> Dict:
         """获取llama2 7b的权重映射表
         """
         weight_map = {
@@ -229,7 +228,7 @@ class WeightMap:
         "lm_head.weight": "head.predictor.weight",
         }
         
-        for i in range(32):
+        for i in range(num_blocks):
             weight_map[f"model.layers.{i}.input_layernorm.weight"] = f"blocks.{i}.attention_norm.weight"
             weight_map[f"model.layers.{i}.post_attention_layernorm.weight"] = f"blocks.{i}.feedforward_norm.weight"
             weight_map[f"model.layers.{i}.self_attn.q_proj.weight"] = f"blocks.{i}.attention.q_proj.weight"
