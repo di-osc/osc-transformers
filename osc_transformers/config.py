@@ -4,14 +4,22 @@ from confection import Config
 
 
 class registry(confection.registry):
+    
     layers = catalogue.create(
         "osc", 
         "layers", 
         entry_points=True
     )
+    
     architectures = catalogue.create(
         "osc", 
         "architectures", 
+        entry_points=True
+    )
+    
+    configs = catalogue.create(
+        "osc",
+        "configs",
         entry_points=True
     )
 
