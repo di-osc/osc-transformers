@@ -8,7 +8,6 @@ import torch
 import torch.nn as nn
 import torch.utils._device
 from torch.serialization import normalize_storage_type
-from lightning.fabric.utilities.load import _lazy_load as lazy_load
 from typing import Dict
 
 
