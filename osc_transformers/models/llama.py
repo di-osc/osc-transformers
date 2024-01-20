@@ -51,6 +51,7 @@ def chinese_alpaca_2_7b_config():
     )
     return Config().from_str(CHINESE_ALPACA_2_7B_CONFIG)
 
+
 @registry.configs.register("chinese-alpaca-2-1.3B")
 def chinese_alpaca_2_1_3b_config():
     CHINESE_ALPACA_2_1_3B_CONFIG = LLAMA_2_BASE_CONFIG.format(
