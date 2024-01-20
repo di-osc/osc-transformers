@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "osc-transformers"
-version = "0.1.0"
+version = "0.1.1"
 description = "以配置文件的形式构建transformer模型"
 authors = ["wangmengdi <790990241@qq.com>"]
 license = "MIT"
