@@ -1,7 +1,6 @@
 import json
 from pathlib import Path
 from typing import Optional, Union
-
 import torch
 
 
@@ -101,6 +100,7 @@ class Tokenizer:
         if max_length > 0:
             tokens = tokens[:max_length]
         return torch.tensor(tokens, dtype=torch.int, device=device)
+
 
     def decode(self, tensor: torch.Tensor) -> str:
         tokens = [tensor.item()] if tensor.ndim == 0 else tensor.tolist()
