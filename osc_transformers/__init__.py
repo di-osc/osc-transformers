@@ -1,6 +1,5 @@
 from .layers import *
 from .architectures import *
-from .models import *
 from .config import registry, Config
 from .tokenizer import Tokenizer
 
