@@ -2,7 +2,6 @@ from ..config import registry
 import torch.nn as nn
 
 
-@registry.layers.register("GLU")
 class GLU(nn.Module):
     """门控线性单元
     """
@@ -39,6 +38,22 @@ def SwiGLU(n_in: int,
     return GLU(n_in=n_in,
                n_hidden=n_hidden,
                activation=nn.SiLU(),
+               up_bias=up_bias,
+               gate_bias=gate_bias,
+               down_bias=down_bias)
+    
+    
+@registry.layers.register("GeGLU")
+def GeGLU(n_in: int, 
+          n_hidden: int,
+          up_bias: bool = False,
+          gate_bias: bool = False,
+          down_bias: bool = False) -> nn.Module:
+    """GELU激活函数的门控线性单元
+    """
+    return GLU(n_in=n_in,
+               n_hidden=n_hidden,
+               activation=nn.GELU(),
                up_bias=up_bias,
                gate_bias=gate_bias,
                down_bias=down_bias)
