@@ -130,7 +130,7 @@ class TransformerDecoder(nn.Module):
         """Forward pass of the TransformerDecoder.
 
         Args:
-            input_ids (torch.Tensor): Input token ids. shape = (batch_size, seq_length, embedding_dim)
+            input_ids (torch.Tensor): Input token ids. shape = (batch_size, seq_length)
             input_pos (Optional[torch.Tensor], optional): Input position ids. prefill stage shape = (batch_size, seq_length) decode stage shape = (batch_size, 1). Defaults to None.
         """
         
