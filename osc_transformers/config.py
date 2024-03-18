@@ -16,12 +16,6 @@ class registry(confection.registry):
         "architectures", 
         entry_points=True
     )
-    
-    configs = catalogue.create(
-        "osc",
-        "configs",
-        entry_points=True
-    )
 
     @classmethod
     def create(cls, registry_name: str, entry_points: bool = False) -> None:
