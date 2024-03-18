@@ -120,11 +120,12 @@ class CausalSelfAttention(nn.Module):
                        batch_size: int, 
                        max_seq_length: int, 
                        device: Optional[torch.device] = None, 
-                       dtype: Optional[torch.dtype] = None) -> None:
+                       dtype: Optional[torch.dtype] = None) -> KVCache:
         n_heads = 1 if self.n_query_groups == 1 else self.n_heads
         k_shape = (batch_size, n_heads, max_seq_length, self.head_size)
         v_shape = (batch_size, n_heads, max_seq_length, self.head_size)
         self.kv_cache = KVCache(k_shape, v_shape, device, dtype)
+        return self.kv_cache
 
 
 def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:

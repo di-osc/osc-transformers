@@ -1,6 +1,7 @@
 from ...config import registry
+from ...layers.attention import KVCache
 import torch.nn as nn
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 import torch
 from copy import deepcopy
 
@@ -23,11 +24,15 @@ class TransformerDecoderBlock(nn.Module):
         self.feedforward_norm = feedforward_norm
         self.prenorm = prenorm
         
-    def build_kv_cache(self, batch_size: int, max_seq_length: int, device: Optional[torch.device] = None, dtype: Optional[torch.dtype] = None):
-        self.attention.build_kv_cache(batch_size=batch_size, max_seq_length=max_seq_length, device=device, dtype=dtype)
+    def build_kv_cache(self, batch_size: int, max_seq_length: int, device: Optional[torch.device] = None, dtype: Optional[torch.dtype] = None) -> KVCache:
+        kv_cache: KVCache = self.attention.build_kv_cache(batch_size=batch_size, max_seq_length=max_seq_length, device=device, dtype=dtype)
+        return kv_cache
         
     def clear_kv_cache(self):
         self.attention.kv_cache = None
+        
+    def set_kv_cache(self, kv_cache: KVCache):
+        self.attention.kv_cache = kv_cache
         
     def forward(
         self,
@@ -71,7 +76,6 @@ class TransformerDecoder(nn.Module):
         
         self.block_size = block_size
         self.max_seq_length = block_size
-        self.mask_cache : Optional[torch.Tensor] = None
         
     @property
     def max_seq_length(self):
@@ -83,40 +87,54 @@ class TransformerDecoder(nn.Module):
             raise ValueError("max_seq_length must be less than or equal to block_size")
         self._max_seq_length = value
         if not hasattr(self, "sin") or not hasattr(self, "cos"):
-            self.build_rope_cache()
+            self.set_rope_cache()
         elif value != self.cos.shape[0]:
-            self.build_rope_cache(device=self.cos.device)
+            self.set_rope_cache(device=self.cos.device)
             
     def reset_parameters(self) -> None:
         # Trigger resetting the rope-cache
         self.max_seq_length = self.block_size
         
-    def build_caches(self, 
-                     batch_size: int, 
-                     max_length: Optional[int] = None, 
-                     device: Optional[torch.device] = None, 
-                     dtype: Optional[torch.dtype] = None):
+    def build_kv_caches(self, 
+                        batch_size: int, 
+                        max_length: Optional[int] = None, 
+                        device: Optional[torch.device] = None, 
+                        dtype: Optional[torch.dtype] = None):
         """Build the key-value cache and mask cache for the decoder block. The key-value cache is used to speed up the attention computation. The mask cache is used to mask out future tokens.
         """
         if not max_length:
             max_length = self.max_seq_length
+            
+        elif max_length != self.max_seq_length:
+            self.max_seq_length = max_length
         
+        kv_caches = []
         for block in self.blocks:
             block: TransformerDecoderBlock
-            block.build_kv_cache(batch_size=batch_size, 
-                                 max_seq_length=max_length, 
-                                 device=device, 
-                                 dtype=dtype)
+            kv_cache =  block.build_kv_cache(
+                batch_size=batch_size, 
+                max_seq_length=max_length, 
+                device=device, 
+                dtype=dtype
+            )
+            kv_caches.append(kv_cache)
+        return kv_caches
             
-        self.mask_cache = torch.tril(torch.ones((max_length, max_length), device=device, dtype=torch.bool)).unsqueeze(0).unsqueeze(0)
-            
-    def clear_caches(self):
+    def clear_kv_caches(self):
         for block in self.blocks:
             block: TransformerDecoderBlock
             block.clear_kv_cache()
         self.mask_cache = None
         
-    def build_rope_cache(self, device: Optional[torch.device] = None) -> None:
+    def set_kv_caches(self, kv_caches: List[KVCache]):
+        for block, kv_cache in zip(self.blocks, kv_caches):
+            block: TransformerDecoderBlock
+            block.set_kv_cache(kv_cache)
+        
+    def set_mask_cache(self, max_length, device):
+        self.mask_cache = torch.tril(torch.ones((max_length, max_length), device=device, dtype=torch.bool)).unsqueeze(0).unsqueeze(0)
+        
+    def set_rope_cache(self, device: Optional[torch.device] = None) -> None:
         head_size = self.blocks[0].attention.head_size
         cos, sin = build_rope_cache(seq_len=self.max_seq_length, 
                                     n_elem=head_size, 
@@ -124,7 +142,6 @@ class TransformerDecoder(nn.Module):
                                     device=device)
         self.register_buffer("cos", cos, persistent=False)
         self.register_buffer("sin", sin, persistent=False)
-    
     
     def forward(self, input_ids: torch.Tensor, input_pos: Optional[torch.Tensor] = None):
         """Forward pass of the TransformerDecoder.
