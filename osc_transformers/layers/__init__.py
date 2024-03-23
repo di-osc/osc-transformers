@@ -1,4 +1,4 @@
-from .norm import RMSNorm, LayerNorm
+from .normalization import RMSNorm, LayerNorm
 from .attention import SelfAttention
 from .head import LMHead
 from .embedding import TokenEmbedding
