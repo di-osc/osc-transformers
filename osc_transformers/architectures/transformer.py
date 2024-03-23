@@ -52,7 +52,8 @@ class TransformerDecoder(nn.Module):
                  feedforward: nn.Module,
                  head: nn.Module,
                  norm: nn.Module,
-                 prenorm: bool) -> None:
+                 prenorm: bool,
+                 kv_cache: Optional[KVCache] = None):
         super().__init__()
         
         self.prenorm = prenorm
@@ -69,6 +70,9 @@ class TransformerDecoder(nn.Module):
         
         self.mask_cache: Optional[torch.Tensor] = None
         
+        if kv_cache:
+            self.kv_caches = [deepcopy(kv_cache()) for _ in range(n_blocks)]
+        
     @property
     def kv_caches(self) -> List[KVCache]:
         return [block.attention.kv_cache for block in self.blocks]
@@ -83,19 +87,23 @@ class TransformerDecoder(nn.Module):
         # Trigger resetting the rope-cache
         self.max_seq_length = self.block_size
         
-    def set_caches(self, 
-                   batch_size: int, 
-                   max_length: Optional[int] = None, 
-                   device: Optional[torch.device] = None, 
-                   dtype: Optional[torch.dtype] = None):
+    def setup_caches(self, 
+                     batch_size: int, 
+                     max_length: Optional[int] = None, 
+                     kv_cache: Optional[KVCache] = None,
+                     device: Optional[torch.device] = None, 
+                     dtype: Optional[torch.dtype] = None):
+        if kv_cache:
+            assert isinstance(kv_cache, KVCache), "kv_cache must be an instance of KVCache"
+            self.kv_caches = [deepcopy(kv_cache) for _ in range(self.n_blocks)]
         if not max_length:
             max_length = self.block_size
         else:
             assert max_length <= self.block_size, "max_length must be less than or equal to block_size"
-        self.set_rope_cache(max_length=max_length, device=device)
-        self.set_kv_caches(batch_size, max_length, device, dtype)
+        self.setup_rope_cache(max_length=max_length, device=device)
+        self.setup_kv_caches(batch_size, max_length, device, dtype)
     
-    def set_kv_caches(self, batch_size: int, max_length: int, device: Optional[torch.device] = None, dtype: Optional[torch.dtype] = None):
+    def setup_kv_caches(self, batch_size: int, max_length: int, device: Optional[torch.device] = None, dtype: Optional[torch.dtype] = None):
         """当前decoder前向推理的时候，需要将encoder的key和value缓存起来，以便decoder的每个block都可以重复使用这些key和value。
         mask cache仅在decode阶段使用, 所以跟kv_cache一起设置。
 
@@ -110,7 +118,7 @@ class TransformerDecoder(nn.Module):
         
         self.mask_cache = torch.tril(torch.ones((max_length, max_length), device=device, dtype=torch.bool)).unsqueeze(0).unsqueeze(0)
 
-    def set_rope_cache(self, max_length: int, device: Optional[torch.device] = None) -> None:
+    def setup_rope_cache(self, max_length: int, device: Optional[torch.device] = None) -> None:
         head_size = self.blocks[0].attention.head_size
         cos, sin = build_rope_cache(seq_len=max_length, 
                                     n_elem=head_size, 
