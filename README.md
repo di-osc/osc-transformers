@@ -10,8 +10,8 @@
 
 ## 安装
 
-- 首先安装pytorch: osc-transformers需要torch>=2.0
-
+- 首先安装pytorch>=2.0
+- 安装osc-transformers
 ```shell
-pip install osc-transformers
+pip install osc-transformers --upgrade
 ```
