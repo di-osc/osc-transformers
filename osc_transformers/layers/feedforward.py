@@ -69,9 +69,10 @@ class MoE(nn.Module):
         n_activated_experts: int,
         n_in: int,
         expert: nn.Module,
+        gate_bias: bool = False,
         ) -> None:
         super().__init__()
-        self.gate = nn.Linear(n_in, n_experts, bias=False)
+        self.gate = nn.Linear(n_in, n_experts, bias=gate_bias)
         self.experts = nn.ModuleList(deepcopy(expert) for _ in range(n_experts))
         self.n_activated_experts = n_activated_experts
         self.n_experts = n_experts
