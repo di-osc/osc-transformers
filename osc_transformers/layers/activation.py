@@ -16,3 +16,18 @@ def GELU() -> nn.Module:
 @registry.layers.register("ReLU")
 def ReLU(inplace: bool = False) -> nn.Module:
     return nn.ReLU(inplace=inplace)
+
+
+@registry.layers.register("Sigmoid")
+def Sigmoid() -> nn.Module:
+    return nn.Sigmoid()
+
+
+@registry.layers.register("Tanh")
+def Tanh() -> nn.Module:
+    return nn.Tanh()
+
+
+@registry.layers.register("Softmax")
+def Softmax(dim: int) -> nn.Module:
+    return nn.Softmax(dim=dim)
