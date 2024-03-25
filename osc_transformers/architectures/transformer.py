@@ -71,7 +71,7 @@ class TransformerDecoder(nn.Module):
         self.mask_cache: Optional[torch.Tensor] = None
         
         if kv_cache:
-            self.kv_caches = [deepcopy(kv_cache()) for _ in range(n_blocks)]
+            self.kv_caches = [deepcopy(kv_cache) for _ in range(n_blocks)]
         
     @property
     def kv_caches(self) -> List[KVCache]:
@@ -114,7 +114,7 @@ class TransformerDecoder(nn.Module):
             dtype (Optional[torch.dtype], optional): 推理数据类型. Defaults to None.
         """
         for block in self.blocks:
-            block.attention.set_kv_cache(batch_size=batch_size, max_seq_length=max_length, device=device, dtype=dtype)
+            block.attention.setup_kv_cache(batch_size=batch_size, max_seq_length=max_length, device=device, dtype=dtype)
         
         self.mask_cache = torch.tril(torch.ones((max_length, max_length), device=device, dtype=torch.bool)).unsqueeze(0).unsqueeze(0)
 
