@@ -6,8 +6,8 @@ from .kv_cache import KVCache
 import math
     
     
-@registry.layers.register("SelfAttention")  
-class SelfAttention(nn.Module):
+@registry.layers.register("CausalSelfAttention")  
+class CausalSelfAttention(nn.Module):
     """融合了RoPE,MQA,GQA,MHA的自注意力机制层"""
     
     # 当`n_heads=4`时MHA,GQA,MQA的区别:
