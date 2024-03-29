@@ -53,6 +53,7 @@ class TransformerDecoder(nn.Module):
                  head: nn.Module,
                  norm: nn.Module,
                  prenorm: bool,
+                 rope_base: int = 10000,
                  kv_cache: Optional[KVCache] = None):
         super().__init__()
         
@@ -64,9 +65,10 @@ class TransformerDecoder(nn.Module):
         )
         self.head_norm = norm if self.prenorm else None
         self.head = head
+        self.rope_base = rope_base
         
         self.block_size = block_size
-        self.max_seq_length = block_size
+        self.max_length = block_size
         
         self.mask_cache: Optional[torch.Tensor] = None
         
@@ -82,12 +84,24 @@ class TransformerDecoder(nn.Module):
         assert len(value) == len(self.blocks), "Number of kv_caches must match number of blocks"
         for block, kv_cache in zip(self.blocks, value):
             block.attention.kv_cache = kv_cache
-        
+            
+    @property
+    def max_length(self) -> int:
+        return self._max_length
+    
+    @max_length.setter
+    def max_length(self, value: int):
+        self._max_length = value
+        if not hasattr(self, "cos") or not hasattr(self, "sin"):
+            self.setup_rope_cache(max_length=value)
+        elif self.cos.size(0) != value:
+            self.setup_rope_cache(max_length=value, device=self.cos.device)
+      
     def reset_parameters(self) -> None:
         # Trigger resetting the rope-cache
         self.max_seq_length = self.block_size
         
-    def setup_caches(self, 
+    def setup_kv_cache(self, 
                      batch_size: int, 
                      max_length: Optional[int] = None, 
                      kv_cache: Optional[KVCache] = None,
@@ -100,19 +114,7 @@ class TransformerDecoder(nn.Module):
             max_length = self.block_size
         else:
             assert max_length <= self.block_size, "max_length must be less than or equal to block_size"
-        self.setup_rope_cache(max_length=max_length, device=device)
-        self.setup_kv_caches(batch_size, max_length, device, dtype)
-    
-    def setup_kv_caches(self, batch_size: int, max_length: int, device: Optional[torch.device] = None, dtype: Optional[torch.dtype] = None):
-        """当前decoder前向推理的时候，需要将encoder的key和value缓存起来，以便decoder的每个block都可以重复使用这些key和value。
-        mask cache仅在decode阶段使用, 所以跟kv_cache一起设置。
-
-        Args:
-            batch_size (int): 最大批次推理的大小
-            max_length (int): 最大序列长度
-            device (Optional[torch.device], optional): 推理设备. Defaults to None.
-            dtype (Optional[torch.dtype], optional): 推理数据类型. Defaults to None.
-        """
+            
         for block in self.blocks:
             block.attention.setup_kv_cache(batch_size=batch_size, max_seq_length=max_length, device=device, dtype=dtype)
         
@@ -123,6 +125,7 @@ class TransformerDecoder(nn.Module):
         cos, sin = build_rope_cache(seq_len=max_length, 
                                     n_elem=head_size, 
                                     dtype=torch.get_default_dtype(), 
+                                    base=self.rope_base,
                                     device=device)
         self.register_buffer("cos", cos, persistent=False)
         self.register_buffer("sin", sin, persistent=False)
@@ -137,7 +140,7 @@ class TransformerDecoder(nn.Module):
         
         B, L = input_ids.size()
         
-        if self.max_seq_length < L:
+        if self.max_length < L:
             raise ValueError(f"Cannot forward sequence of length {L}, max seq length is only {self.max_seq_length}.")
 
         if input_pos is not None:
