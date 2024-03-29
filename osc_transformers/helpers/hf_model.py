@@ -26,6 +26,24 @@ class HFModelHelper:
     def osc_config(self) -> Config:
         raise NotImplementedError("Method not implemented")
     
+    def convert_checkpoint(self, config_name: str = 'config.cfg', model_name: str = 'osc_model.pth'):
+        """将huggingface模型转换为osc格式模型
+
+        Args:
+            config_name (str, optional): 配置文件保存名称. Defaults to 'config.cfg'.
+            model_name (str, optional): 模型文件名称. Defaults to 'osc_model.pth'.
+        """
+        pytorch_model = Path(self.checkpoint_dir) / 'pytorch_model.bin'
+        pytorch_idx_file = Path(self.checkpoint_dir) / 'pytorch_model.bin.index.json'
+        if pytorch_model.exists() or pytorch_idx_file.exists():
+            self.convert_pytorch_format(config_name, model_name)
+        safetensors_model = Path(self.checkpoint_dir) / 'model.safetensors'
+        safetensors_idx_file = Path(self.checkpoint_dir) / 'model.safetensors.index.json'
+        if safetensors_model.exists() or safetensors_idx_file.exists():
+            self.convert_safetensor_format(config_name, model_name)
+        if not pytorch_model.exists() and not safetensors_model.exists() and not pytorch_idx_file.exists() and not safetensors_idx_file.exists():
+            raise FileNotFoundError("No pytorch model file found")
+    
     def convert_pytorch_format(self, config_name: str = 'config.cfg', model_name: str = 'osc_model.pth'):
         sd = {}
         wmap = self.weight_map
@@ -60,7 +78,7 @@ class HFModelHelper:
         assert len(files) > 0, 'No pytorch model file found'
         try:
             from safetensors import safe_open
-        except:
+        except Exception:
             raise ImportError("Please install safetensors first, run `pip install safetensors`")
         for file in files:
             with safe_open(file, framework='pt') as f:
@@ -110,9 +128,10 @@ class Llama2Helper(HFModelHelper):
         n_blocks = {num_hidden_layers}
         block_size = {max_length}
         prenorm = "True"
+        rope_base = {rope_theta}
 
         [model.attention]
-        @layers = "SelfAttention"
+        @layers = "CausalSelfAttention"
         n_in = {hidden_size}
         n_heads = {num_attention_heads}
         n_query_groups = {num_key_value_heads}
@@ -140,9 +159,11 @@ class Llama2Helper(HFModelHelper):
         [model.norm]
         @layers = "RMSNorm"
         n_in = {hidden_size}
-        eps = 0.00001
+        eps = {rms_norm_eps}
         """
         self.hf_config['max_length'] = self.hf_config.get('max_length', self.hf_config['max_position_embeddings'])
+        self.hf_config['rope_theta'] = self.hf_config.get('rope_theta', 10000)
+        self.hf_config['rms_norm_eps'] = self.hf_config.get('rms_norm_eps', 1e-5)
         config_str = tempelate.format(**self.hf_config)
         return Config().from_str(config_str)
     
@@ -187,9 +208,10 @@ class Qwen2Helper(HFModelHelper):
         n_blocks = {num_hidden_layers}
         block_size = {max_length}
         prenorm = "True"
+        rope_base = {rope_theta}
 
         [model.attention]
-        @layers = "SelfAttention"
+        @layers = "CausalSelfAttention"
         n_in = {hidden_size}
         n_heads = {num_attention_heads}
         n_query_groups = {num_key_value_heads}
