@@ -82,7 +82,7 @@ class CausalSelfAttention(nn.Module):
             if not self.kv_cache:
                 raise TypeError("current attention layer does not support kv_cache, please set `kv_cache` in the layer init")
             if not hasattr(self.kv_cache, "k_cache") or not hasattr(self.kv_cache, "v_cache"):
-                raise TypeError("You need to call `model.set_kv_caches()`")
+                raise TypeError("You need to call `model.setup_kv_cache()`")
             k, v = self.kv_cache.update(input_pos=input_pos, k=k, v=v, copy_dim=2)
 
         o = self.scaled_dot_product_attention(q, k, v, mask=attention_mask)
