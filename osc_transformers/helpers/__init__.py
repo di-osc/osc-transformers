@@ -1,6 +1,7 @@
-from .build_model import build_from_config, load_from_checkpoint
-from .hf_model import Llama2Helper, Qwen2Helper
-from .test_model import benchmark
+from .build import build_from_config, load_from_checkpoint
+from .huggingface import Llama2Helper, Qwen2Helper
+from .test import benchmark
+from .quantize import WeightOnlyInt8QuantHelper
 
 
 __all__ = [
@@ -8,5 +9,6 @@ __all__ = [
     "load_from_checkpoint",
     "Llama2Helper",
     "Qwen2Helper",
-    "benchmark"
+    "benchmark",
+    "WeightOnlyInt8QuantHelper"
 ]
