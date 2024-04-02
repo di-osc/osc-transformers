@@ -122,7 +122,6 @@ class WeightOnlyInt4QuantHelper:
                 weight_int4pack, scales_and_zeros = prepare_int4_weight_and_scales_and_zeros(
                     weight.to(torch.bfloat16), self.groupsize, self.inner_k_tiles
                 )
-                print(weight_int4pack.shape)
                 cur_state_dict[f"{fqn}.weight"] = weight_int4pack.to('cpu')
                 cur_state_dict[f"{fqn}.scales_and_zeros"] = scales_and_zeros.to('cpu')
 
@@ -144,10 +143,16 @@ def replace_linear_int4(module, groupsize, inner_k_tiles, padding_allowed, use_c
     for name, child in module.named_children():
         if isinstance(child, nn.Linear):
             if _check_linear_int4_k(child.in_features, groupsize, inner_k_tiles) or padding_allowed:
-                setattr(module, name, WeightOnlyInt4Linear(
-                    child.in_features, child.out_features, bias=False,
-                    groupsize=groupsize, inner_k_tiles=inner_k_tiles, use_cuda=use_cuda
-                ))
+                new_module = WeightOnlyInt4Linear(
+                    in_features=child.in_features, 
+                    out_features=child.out_features, 
+                    bias=False,
+                    groupsize=groupsize, 
+                    inner_k_tiles=inner_k_tiles, 
+                    use_cuda=use_cuda,
+                    padding=False
+                )
+                setattr(module, name, new_module)
         else:
             replace_linear_int4(child, groupsize, inner_k_tiles, padding_allowed, use_cuda)
             
@@ -162,6 +167,15 @@ def linear_forward_int4(x, weight_int4pack, scales_and_zeros, out_features, grou
 
 
 def find_multiple(n: int, k: int) -> int:
+    """Find the smallest multiple of k that is greater than or equal to n.
+
+    Args:
+        n (int): the number to find the multiple of k for.
+        k (int): the number to find the multiple of.
+
+    Returns:
+        int: the smallest multiple of k that is greater than or equal to n.
+    """
     if n % k == 0:
         return n
     return n + k - (n % k)
@@ -271,9 +285,10 @@ class WeightOnlyInt4Linear(torch.nn.Module):
         groupsize: int = 128, 
         inner_k_tiles: int = 8, 
         use_cuda=True,
+        padding: bool = True
     ) -> None:
         super().__init__()
-        self.padding = _check_linear_int4_k(in_features, groupsize, inner_k_tiles)
+        self.padding = padding
         if self.padding:
             self.origin_in_features = in_features
             in_features = find_multiple(in_features, 1024)
