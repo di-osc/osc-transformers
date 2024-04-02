@@ -1,0 +1,20 @@
+title: osc-transformers
+description: 以配置文件的方式定义transformers模型
+check_requirements: false
+directories: []
+workflows:
+  all:
+    - command1
+    - command2
+commands:
+  - name: build
+    help: build osc-transformers
+    script:
+      - rm -rf dist
+      - poetry build
+      - pip install dist/osc_transformers-0.1.1.tar.gz
+
+  - name: publish
+    help: command2 help
+    script:
+      - python **
