@@ -1,12 +1,17 @@
 import json 
 from pathlib import Path
 from typing import Dict
-from ..config import Config
+from ..config import Config, registry
+from .build import build_from_config
+from .quantize import WeightOnlyInt4QuantHelper, WeightOnlyInt8QuantHelper
 import torch
+from typing import Literal
 
 
 
 class HFModelHelper:
+    
+    hf_architecture: str
     
     def __init__(self, checkpoint_dir: str):
         self.checkpoint_dir = Path(checkpoint_dir)
@@ -16,10 +21,6 @@ class HFModelHelper:
     
     @property
     def weight_map(self) -> Dict:
-        raise NotImplementedError("Method not implemented")
-    
-    @property
-    def hf_architecture(self) -> str:
         raise NotImplementedError("Method not implemented")
     
     @property
@@ -89,10 +90,35 @@ class HFModelHelper:
             
         self.osc_config.to_disk(self.checkpoint_dir / config_name)
         torch.save(sd, self.checkpoint_dir / model_name)
-    
-    
-class Llama2Helper(HFModelHelper):
         
+    def load_checkpoint(self, checkpoint_name: str = 'osc_model.pth', device: str = 'cuda', dtype: torch.dtype = torch.bfloat16):
+        model = build_from_config(self.osc_config)
+        model.load_state_dict(torch.load(str(self.checkpoint_dir / checkpoint_name), mmap=True, weights_only=True), assign=True)
+        model.to(device, dtype=dtype)
+        return model.eval()
+        
+    def quantize_int8(self, save_name: str = 'osc_model_int8.pth', device: str = 'cuda'):
+        model = self.load_checkpoint(device=device)
+        helper = WeightOnlyInt8QuantHelper(model=model)
+        helper.save_quantized_state_dict(self.checkpoint_dir / save_name)
+        
+    def quantize_int4(self, 
+                      groupsize: Literal[32, 64, 128, 256] = 32, 
+                      k: Literal[2, 4, 8] = 8, 
+                      padding: bool = True,
+                      save_name: str = 'osc_model_int4.pth', 
+                      device: str = 'cuda'):
+        assert 'cuda' in device, 'Only support cuda device for int4 quantization'
+        model = self.load_checkpoint(device=device)
+        helper = WeightOnlyInt4QuantHelper(model=model, groupsize=groupsize, inner_k_tiles=k, padding_allowed=padding)
+        helper.save_quantized_state_dict(self.checkpoint_dir / save_name)
+    
+
+@registry.model_helpers.register("LlamaForCausalLM")
+class LlamaHelper(HFModelHelper):
+        
+    hf_architecture = "LlamaForCausalLM"
+    
     @property
     def weight_map(self) -> Dict:
         """获取llama2权重映射表
@@ -115,10 +141,6 @@ class Llama2Helper(HFModelHelper):
             weight_map[f"model.layers.{i}.mlp.down_proj.weight"] = f"blocks.{i}.feedforward.down_proj.weight"
             
         return weight_map
-    
-    @property
-    def hf_architecture(self) -> str:
-        return "LlamaForCausalLM"
     
     @property
     def osc_config(self) -> Config:
@@ -167,8 +189,11 @@ class Llama2Helper(HFModelHelper):
         config_str = tempelate.format(**self.hf_config)
         return Config().from_str(config_str)
     
-    
+
+@registry.model_helpers.register("Qwen2ForCausalLM")
 class Qwen2Helper(HFModelHelper):
+    
+    hf_architecture = "Qwen2ForCausalLM"
     
     @property
     def weight_map(self) -> Dict:
@@ -195,10 +220,6 @@ class Qwen2Helper(HFModelHelper):
             weight_map[f"model.layers.{i}.mlp.down_proj.weight"] = f"blocks.{i}.feedforward.down_proj.weight"
             
         return weight_map
-    
-    @property
-    def hf_architecture(self) -> str:
-        return "Qwen2ForCausalLM"
     
     @property
     def osc_config(self) -> Config:
