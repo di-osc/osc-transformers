@@ -75,8 +75,11 @@ class WeightOnlyInt8Linear(torch.nn.Module):
     weight: torch.Tensor
 
     def __init__(self, 
-                 in_features: int, out_features: int, bias: bool = True,
-                 device=None, dtype=None) -> None:
+                 in_features: int, 
+                 out_features: int, 
+                 bias: bool = True,
+                 device=None, 
+                 dtype=None) -> None:
         factory_kwargs = {'device': device, 'dtype': dtype}
         super().__init__()
         self.in_features = in_features
@@ -155,15 +158,6 @@ def replace_linear_int4(module, groupsize, inner_k_tiles, padding_allowed, use_c
                 setattr(module, name, new_module)
         else:
             replace_linear_int4(child, groupsize, inner_k_tiles, padding_allowed, use_cuda)
-            
-
-def linear_forward_int4(x, weight_int4pack, scales_and_zeros, out_features, groupsize):
-    origin_x_size = x.size()
-    x = x.reshape(-1, origin_x_size[-1])
-    c = torch.ops.aten._weight_int4pack_mm(x, weight_int4pack, groupsize, scales_and_zeros)
-    new_shape = origin_x_size[:-1] + (out_features,)
-    c = c.reshape(new_shape)
-    return c
 
 
 def find_multiple(n: int, k: int) -> int:
@@ -265,11 +259,11 @@ def group_quantize_tensor_from_qparams(w, scales, zeros, n_bit=4, groupsize=128)
         .to(torch.int32)
         .reshape_as(w)
     )
-
     return w_int32
             
 
 class WeightOnlyInt4Linear(torch.nn.Module):
+    
     __constants__ = ['in_features', 'out_features']
     in_features: int
     out_features: int
@@ -279,9 +273,7 @@ class WeightOnlyInt4Linear(torch.nn.Module):
         self, 
         in_features: int, 
         out_features: int,
-        bias=True, 
-        device=None, 
-        dtype=None, 
+        bias=False, 
         groupsize: int = 128, 
         inner_k_tiles: int = 8, 
         use_cuda=True,
@@ -316,15 +308,24 @@ class WeightOnlyInt4Linear(torch.nn.Module):
             torch.empty((in_features // groupsize, out_features, 2), dtype=torch.bfloat16)
         )
 
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        input = input.to(torch.bfloat16)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x.to(torch.bfloat16)
+        
         if self.padding:
-            import torch.nn.functional as F
-            input = F.pad(input, pad=(0, self.in_features - self.origin_in_features))
+            x = F.pad(x, pad=(0, self.in_features - self.origin_in_features))
+            
         return linear_forward_int4(
-            input,
+            x,
             self.weight, 
             self.scales_and_zeros, 
             self.out_features, 
             self.groupsize
         )
+        
+def linear_forward_int4(x, weight_int4pack, scales_and_zeros, out_features, groupsize):
+    origin_x_size = x.size()
+    x = x.reshape(-1, origin_x_size[-1])
+    c = torch.ops.aten._weight_int4pack_mm(x, weight_int4pack, groupsize, scales_and_zeros)
+    new_shape = origin_x_size[:-1] + (out_features,)
+    c = c.reshape(new_shape)
+    return c
