@@ -11,5 +11,5 @@ __all__ = [
     "Qwen2Helper",
     "benchmark",
     "WeightOnlyInt8QuantHelper",
-    "WeightOnlyInt4QuantHelper"
+    "WeightOnlyInt4QuantHelper",
 ]
