@@ -8,7 +8,7 @@ import math
     
 @registry.layers.register("CausalSelfAttention")  
 class CausalSelfAttention(nn.Module):
-    """融合了RoPE,MQA,GQA,MHA的自注意力机制层"""
+    """融合了RoPE,MQA,GQA,MHA的因果自注意力机制层"""
     
     # 当`n_heads=4`时MHA,GQA,MQA的区别:
     # ┌───┐┌───┐┌───┐┌───┐     ┌───┐    ┌───┐             ┌───┐
