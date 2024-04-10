@@ -11,8 +11,3 @@ class LMHead(nn.Module):
         
     def forward(self, x):
         return self.predictor(x)
-    
-    
-@registry.layers.register("Linear")
-def Linear(n_in: int, n_out: int, bias: bool = True):
-    return nn.Linear(in_features=n_in, out_features=n_out, bias=bias)

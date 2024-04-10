@@ -1,6 +1,7 @@
 from .normalization import RMSNorm, LayerNorm
 from .attention import CausalSelfAttention
-from .head import LMHead, Linear
+from .head import LMHead
+from .linear import Linear, WeightOnlyInt4Linear, WeightOnlyInt8Linear
 from .embedding import TokenEmbedding, TokenEmbeddingPlus
 from .feedforward import GLU, SwiGLU, MoE, GeGLU
 from .activation import ReLU, SiLU, GELU
@@ -24,5 +25,7 @@ __all__ = [
     "GELU",
     "StaticKVCache",
     "Linear",
+    "WeightOnlyInt4Linear",
+    "WeightOnlyInt8Linear",
     "Dropout",
 ]
