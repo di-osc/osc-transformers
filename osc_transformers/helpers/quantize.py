@@ -1,8 +1,8 @@
 import torch 
 import torch.nn as nn
-import torch.nn.functional as F
 from typing import Union
 from pathlib import Path
+from osc_transformers.layers.linear import WeightOnlyInt8Linear, WeightOnlyInt4Linear, find_multiple
 
 
 
@@ -41,7 +41,8 @@ def dynamically_quantize_per_channel(x, quant_min, quant_max, target_dtype):
     return quant, scales, zero_points
 
 
-def replace_linear_weight_only_int8_per_channel(module):
+def replace_linear_weight_only_int8_per_channel(module: nn.Module):
+    """递归替换module中的所有nn.Linear为WeightOnlyInt8Linear"""
     for name, child in module.named_children():
         if isinstance(child, nn.Linear):
             setattr(module, name, WeightOnlyInt8Linear(child.in_features, child.out_features))
@@ -66,29 +67,6 @@ class WeightOnlyInt8QuantHelper:
     def convert_for_runtime(self):
         replace_linear_weight_only_int8_per_channel(self.model)
         return self.model
-
-
-class WeightOnlyInt8Linear(torch.nn.Module):
-    __constants__ = ['in_features', 'out_features']
-    in_features: int
-    out_features: int
-    weight: torch.Tensor
-
-    def __init__(self, 
-                 in_features: int, 
-                 out_features: int, 
-                 bias: bool = True,
-                 device=None, 
-                 dtype=None) -> None:
-        factory_kwargs = {'device': device, 'dtype': dtype}
-        super().__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        self.register_buffer("weight", torch.empty((out_features, in_features), dtype=torch.int8))
-        self.register_buffer("scales", torch.ones(out_features, dtype=torch.bfloat16))
-
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        return F.linear(input, self.weight.to(dtype=input.dtype)) * self.scales
     
 
 class WeightOnlyInt4QuantHelper:
@@ -160,21 +138,6 @@ def replace_linear_int4(module, groupsize, inner_k_tiles, padding_allowed, use_c
             replace_linear_int4(child, groupsize, inner_k_tiles, padding_allowed, use_cuda)
 
 
-def find_multiple(n: int, k: int) -> int:
-    """Find the smallest multiple of k that is greater than or equal to n.
-
-    Args:
-        n (int): the number to find the multiple of k for.
-        k (int): the number to find the multiple of.
-
-    Returns:
-        int: the smallest multiple of k that is greater than or equal to n.
-    """
-    if n % k == 0:
-        return n
-    return n + k - (n % k)
-
-
 def prepare_int4_weight_and_scales_and_zeros(weight_bf16, groupsize, inner_k_tiles):
     weight_int32, scales_and_zeros = group_quantize_tensor(
         weight_bf16, n_bit=4, groupsize=groupsize
@@ -183,7 +146,7 @@ def prepare_int4_weight_and_scales_and_zeros(weight_bf16, groupsize, inner_k_til
     return weight_int4pack, scales_and_zeros
 
 
-def group_quantize_tensor(w, n_bit=4, groupsize=128):
+def group_quantize_tensor(w: nn.Module, n_bit: int = 4, groupsize: int = 128):
     scales, zeros = get_group_qparams(w, n_bit, groupsize)
     w_int32 = group_quantize_tensor_from_qparams(w, scales, zeros, n_bit, groupsize)
     scales_and_zeros = pack_scales_and_zeros(scales, zeros)
@@ -260,72 +223,3 @@ def group_quantize_tensor_from_qparams(w, scales, zeros, n_bit=4, groupsize=128)
         .reshape_as(w)
     )
     return w_int32
-            
-
-class WeightOnlyInt4Linear(torch.nn.Module):
-    
-    __constants__ = ['in_features', 'out_features']
-    in_features: int
-    out_features: int
-    weight: torch.Tensor
-
-    def __init__(
-        self, 
-        in_features: int, 
-        out_features: int,
-        bias=False, 
-        groupsize: int = 128, 
-        inner_k_tiles: int = 8, 
-        use_cuda=True,
-        padding: bool = True
-    ) -> None:
-        super().__init__()
-        self.padding = padding
-        if self.padding:
-            self.origin_in_features = in_features
-            in_features = find_multiple(in_features, 1024)
-
-        self.in_features = in_features
-        self.out_features = out_features
-        assert not bias, "require bias=False"
-        self.groupsize = groupsize
-        self.inner_k_tiles = inner_k_tiles
-
-        assert out_features % 8 == 0, "require out_features % 8 == 0"
-        assert in_features % (inner_k_tiles * 16) == 0, "require in_features % (innerKTiles * 16) == 0"
-        if use_cuda:
-            self.register_buffer(
-                "weight",
-                torch.empty((out_features // 8, in_features // (inner_k_tiles * 16), 32, inner_k_tiles // 2), dtype=torch.int32)
-            )
-        else:
-            self.register_buffer(
-                "weight",
-                torch.empty((out_features, in_features // 2), dtype=torch.uint8)
-            )
-        self.register_buffer(
-            "scales_and_zeros",
-            torch.empty((in_features // groupsize, out_features, 2), dtype=torch.bfloat16)
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x.to(torch.bfloat16)
-        
-        if self.padding:
-            x = F.pad(x, pad=(0, self.in_features - self.origin_in_features))
-            
-        return linear_forward_int4(
-            x,
-            self.weight, 
-            self.scales_and_zeros, 
-            self.out_features, 
-            self.groupsize
-        )
-        
-def linear_forward_int4(x, weight_int4pack, scales_and_zeros, out_features, groupsize):
-    origin_x_size = x.size()
-    x = x.reshape(-1, origin_x_size[-1])
-    c = torch.ops.aten._weight_int4pack_mm(x, weight_int4pack, groupsize, scales_and_zeros)
-    new_shape = origin_x_size[:-1] + (out_features,)
-    c = c.reshape(new_shape)
-    return c
