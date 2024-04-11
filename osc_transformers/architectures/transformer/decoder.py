@@ -1,7 +1,7 @@
 from osc_transformers.config import registry
 from osc_transformers.layers.attention import KVCache
 import torch.nn as nn
-from typing import Optional, Tuple, List
+from typing import Mapping, Optional, Tuple, List, Any
 import torch
 from copy import deepcopy
 
@@ -92,10 +92,11 @@ class TransformerDecoder(nn.Module):
     @max_length.setter
     def max_length(self, value: int):
         self._max_length = value
-        if not hasattr(self, "cos") or not hasattr(self, "sin"):
-            self.setup_rope_cache(max_length=value)
-        elif self.cos.size(0) != value:
-            self.setup_rope_cache(max_length=value, device=self.cos.device)
+        if self.rope_base:
+            if not hasattr(self, "cos") or not hasattr(self, "sin"):
+                self.setup_rope_cache(max_length=value)
+            elif self.cos.size(0) != value:
+                self.setup_rope_cache(max_length=value, device=self.cos.device)
       
     def reset_parameters(self) -> None:
         # Trigger resetting the rope-cache
@@ -129,6 +130,7 @@ class TransformerDecoder(nn.Module):
                                     device=device)
         self.register_buffer("cos", cos, persistent=False)
         self.register_buffer("sin", sin, persistent=False)
+
         
     def forward(self, input_ids: torch.Tensor, input_pos: Optional[torch.Tensor] = None):
         """Forward pass of the TransformerDecoder.
@@ -167,6 +169,11 @@ class TransformerDecoder(nn.Module):
         x = self.head(x)
         
         return x
+    
+    def load_state_dict(self, state_dict: Mapping[str, Any], strict: bool = True, assign: bool = True):
+        # 保证在用torch.device('meta')构建模型后, 可以运行model.to('cuda:xxx'),不然会由于cos和sin是meta data而报错
+        self.setup_rope_cache(max_length=self.max_length)
+        return super().load_state_dict(state_dict, strict, assign)
             
     
 def build_rope_cache(seq_len: int, n_elem: int, dtype: torch.dtype, device: torch.device, base: int = 10000, condense_ratio: int = 1) -> RoPECache:
