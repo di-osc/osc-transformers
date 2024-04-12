@@ -5,7 +5,7 @@ import torch
 from typing import Literal
 from osc_transformers.config import Config
 from osc_transformers.helpers.build import build_from_config
-from osc_transformers.helpers.quantize import WeightOnlyInt4QuantHelper, WeightOnlyInt8QuantHelper
+from osc_transformers.quantizers import WeightOnlyInt4Quantizer, WeightOnlyInt8Quantizer
 
 
 
@@ -99,8 +99,8 @@ class HFModelHelper:
         
     def quantize_int8(self, save_name: str = 'osc_model_int8.pth', device: str = 'cuda'):
         model = self.load_checkpoint(device=device)
-        helper = WeightOnlyInt8QuantHelper(model=model)
-        helper.save_quantized_state_dict(self.checkpoint_dir / save_name)
+        helper = WeightOnlyInt8Quantizer()
+        helper.save_quantized_state_dict(model=model, save_path=self.checkpoint_dir / save_name)
         
     def quantize_int4(self, 
                       groupsize: Literal[32, 64, 128, 256] = 32, 
@@ -112,5 +112,5 @@ class HFModelHelper:
         assert 'cuda' in device, 'Only support cuda device for int4 quantization'
         save_name = save_name.format(groupsize=groupsize, k=k)
         model = self.load_checkpoint(device=device)
-        helper = WeightOnlyInt4QuantHelper(model=model, groupsize=groupsize, inner_k_tiles=k, padding_allowed=padding)
-        helper.save_quantized_state_dict(self.checkpoint_dir / save_name)
+        helper = WeightOnlyInt4Quantizer(groupsize=groupsize, inner_k_tiles=k, padding_allowed=padding)
+        helper.save_quantized_state_dict(model=model, save_path=self.checkpoint_dir / save_name)
