@@ -130,8 +130,7 @@ def replace_linear_int4(module, groupsize, inner_k_tiles, padding_allowed, use_c
                     bias=False,
                     groupsize=groupsize, 
                     inner_k_tiles=inner_k_tiles, 
-                    use_cuda=use_cuda,
-                    padding=False
+                    use_cuda=use_cuda
                 )
                 setattr(module, name, new_module)
         else:
