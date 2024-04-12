@@ -22,6 +22,12 @@ class registry(confection.registry):
         "model_helpers", 
         entry_points=True
     )
+    
+    quantizers = catalogue.create(
+        "osc", 
+        "quantizers", 
+        entry_points=True
+    )
 
     @classmethod
     def create(cls, registry_name: str, entry_points: bool = False) -> None:
