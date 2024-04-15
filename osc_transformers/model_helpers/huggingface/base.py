@@ -4,7 +4,7 @@ from typing import Dict
 import torch
 from typing import Literal
 from osc_transformers.config import Config
-from osc_transformers.helpers.build import build_from_config
+from osc_transformers.model_helpers.build import build_from_config
 from osc_transformers.quantizers import WeightOnlyInt4Quantizer, WeightOnlyInt8Quantizer
 
 
