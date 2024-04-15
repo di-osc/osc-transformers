@@ -22,8 +22,13 @@ def build_from_config(config: Union[Dict, str, Path, Config], model_section: str
     return registry.resolve(config=config)[model_section]
 
 
-def load_from_checkpoint(checkpoint_dir: Union[str, Path], model_section: str = 'model', config_name: str = 'config.cfg', model_name: str = 'osc_model.pth'):
-    """Load a model from a checkpoint directory.
+def buil_from_checkpoint(checkpoint_dir: Union[str, Path], 
+                         model_section: str = 'model', 
+                         config_name: str = 'config.cfg', 
+                         model_name: str = 'osc_model.pth',
+                         load_weights_only: bool = True,
+                         load_weights: bool = True):
+    """build a model from a checkpoint directory.
 
     Args:
         checkpoint_dir (Union[str, Path]): the directory containing the model checkpoint.
@@ -36,7 +41,9 @@ def load_from_checkpoint(checkpoint_dir: Union[str, Path], model_section: str = 
     """
     checkpoint_dir = Path(checkpoint_dir)
     config_path = Path(checkpoint_dir) / config_name
-    model = build_from_config(config_path, model_section=model_section)
-    states = torch.load(str(checkpoint_dir / model_name), map_location='cpu', mmap=True, weights_only=True)
-    model.load_state_dict(states)
+    with torch.device('meta'):
+        model = build_from_config(config_path, model_section=model_section)
+    if load_weights:
+        states = torch.load(str(checkpoint_dir / model_name), map_location='cpu', mmap=True, weights_only=load_weights_only)
+        model.load_state_dict(states)
     return model
