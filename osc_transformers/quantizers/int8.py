@@ -1,15 +1,14 @@
 from osc_transformers.quantizers.base import Quantizer
 from osc_transformers.layers import WeightOnlyInt8Linear
 from osc_transformers.config import registry
+from confection import Config
 import torch.nn as nn
 import torch
 
 
+
 @registry.quantizers.register("WeightOnlyInt8Quantizer")
 class WeightOnlyInt8Quantizer(Quantizer):
-    
-    def __init__(self) -> None:
-        super().__init__()
     
     def save_quantized_state_dict(self, model: nn.Module, save_path: str) -> None:
         with torch.no_grad():
@@ -25,6 +24,14 @@ class WeightOnlyInt8Quantizer(Quantizer):
         self._replace_linear_weight_only_int8_per_channel(model)
         return model
     
+    def get_quantizer_config(self, save_path: str):
+        config_str = """
+        [quantizer]
+        @quantizers = "WeightOnlyInt8Quantizer"
+        """
+        config = Config().from_str(config_str)
+        return config
+        
     def _replace_linear_weight_only_int8_per_channel(self, module: nn.Module) -> None:
         """递归替换module中的所有nn.Linear为WeightOnlyInt8Linear"""
         for name, child in module.named_children():

@@ -1,18 +1,20 @@
 import torch 
 import torch.nn as nn
-from typing import Union
+from typing import Union, Literal
 from pathlib import Path
 from osc_transformers.layers.linear import WeightOnlyInt4Linear, find_multiple
 from osc_transformers.quantizers.base import Quantizer
+from osc_transformers.config import registry
+from confection import Config
 
     
-
+@registry.quantizers.register("WeightOnlyInt4Quantizer")
 class WeightOnlyInt4Quantizer(Quantizer):
     
     def __init__(self, 
-                 groupsize=32, 
-                 inner_k_tiles=8, 
-                 padding_allowed=True):
+                 groupsize: Literal[32, 64, 128, 256] = 32, 
+                 inner_k_tiles: Literal[2, 4, 8] = 8, 
+                 padding_allowed: bool = True):
         self.groupsize = groupsize
         self.inner_k_tiles = inner_k_tiles
         self.padding_allowed = padding_allowed
@@ -28,7 +30,6 @@ class WeightOnlyInt4Quantizer(Quantizer):
                 out_features = mod.out_features
                 in_features = mod.in_features
                 assert out_features % 8 == 0, "require out_features % 8 == 0"
-                print(f"linear: {fqn}, in={in_features}, out={out_features}")
                 weight = mod.weight.data
                 if not _check_linear_int4_k(in_features, self.groupsize, self.inner_k_tiles):
                     if self.padding_allowed:
@@ -54,6 +55,17 @@ class WeightOnlyInt4Quantizer(Quantizer):
     def convert_for_runtime(self, model:nn.Module, use_cuda: bool = True):
         replace_linear_int4(model, self.groupsize, self.inner_k_tiles, self.padding_allowed, use_cuda)
         return model
+    
+    def get_quantizer_config(self) -> Config:
+        config_str = f"""
+        [quantizer]
+        @quantizers = "WeightOnlyInt4Quantizer"
+        groupsize = {self.groupsize}
+        inner_k_tiles = {self.inner_k_tiles}
+        padding_allowed = {self.padding_allowed}
+        """
+        config = Config().from_str(config_str)
+        return config
     
     
 def _check_linear_int4_k(k, groupsize = 1, inner_k_tiles = 1):
