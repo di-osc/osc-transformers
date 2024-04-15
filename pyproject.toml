@@ -12,6 +12,11 @@ python = ">=3.7"
 confection = "^0.1.3"
 catalogue = ">=2.0.10"
 torch = ">=2.0"
+jsonargparse = ">=4.27.7"
+wasabi = ">=1.1.2"
+
+[tool.poetry.scripts]
+osc-transformers = "osc_transformers.cli:main"
 
 
 [build-system]
