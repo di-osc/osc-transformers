@@ -17,7 +17,7 @@ class Tokenizer:
         # some checkpoints have both files, `.model` takes precedence
         if (vocabulary_path := checkpoint_dir / "tokenizer.model").is_file():
             from sentencepiece import SentencePieceProcessor
-
+            self.tokenizer_path = checkpoint_dir / "tokenizer.model"
             self.processor = SentencePieceProcessor(model_file=str(vocabulary_path))
             self.backend = "sentencepiece"
             self.bos_id = self.processor.bos_id()
@@ -25,11 +25,12 @@ class Tokenizer:
 
         elif (vocabulary_path := checkpoint_dir / "tokenizer.json").is_file():
             from tokenizers import Tokenizer as HFTokenizer
-
+            self.tokenizer_path = checkpoint_dir / "tokenizer.json"
             self.processor = HFTokenizer.from_file(str(vocabulary_path))
             self.backend = "huggingface"
 
             if (special_tokens_path := checkpoint_dir / "tokenizer_config.json").is_file():
+                self.tokenizer_config_path = checkpoint_dir / "tokenizer_config.json"
                 with open(special_tokens_path) as fp:
                     config = json.load(fp)
                 bos_token = config.get("bos_token")
@@ -37,6 +38,7 @@ class Tokenizer:
                 eos_token = config.get("eos_token")
                 self.eos_id = self.token_to_id(eos_token) if eos_token is not None else None
             if (special_tokens_path := checkpoint_dir / "generation_config.json").is_file():
+                self.generation_config_path = checkpoint_dir / "generation_config.json"
                 with open(special_tokens_path) as fp:
                     config = json.load(fp)
                 if self.bos_id is None:
@@ -101,7 +103,16 @@ class Tokenizer:
             tokens = tokens[:max_length]
         return torch.tensor(tokens, dtype=torch.int, device=device)
 
-
     def decode(self, tensor: torch.Tensor) -> str:
         tokens = [tensor.item()] if tensor.ndim == 0 else tensor.tolist()
         return self.processor.decode(tokens)
+    
+    def save(self, save_dir: str):
+        save_dir = Path(save_dir)
+        import shutil
+        if self.backend == "huggingface":
+            shutil.copyfile(self.tokenizer_path, save_dir / self.tokenizer_path.name)
+            shutil.copyfile(self.tokenizer_config_path, save_dir / self.tokenizer_config_path.name)
+            shutil.copyfile(self.generation_config_path, save_dir / self.generation_config_path.name)
+        if self.backend == "sentencepiece":
+            shutil.copyfile(self.tokenizer_path, save_dir / self.tokenizer_path.name)

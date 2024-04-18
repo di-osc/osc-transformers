@@ -6,19 +6,22 @@ from confection import Config
 
 class Quantizer(ABC):
     
+    
     @abstractmethod
-    def convert_for_runtime(self, model: nn.Module) -> nn.Module:
-        """Converts the original model to a quantized model for runtime.
-
-        Args:
-            model (nn.Module): The original model.
+    def quantize(self, model: nn.Module) -> nn.Module:
+        """在线量化模型,返回量化后的模型
         """
         raise NotImplementedError
     
     @abstractmethod
-    def save_quantized_state_dict(self, model: nn.Module, save_path: str) -> None:
+    def convert_for_runtime(self, model: nn.Module) -> nn.Module:
+        """仅将模型的结构转化为量化后的结构,并不对数据进行量化。
+
+        Args:
+            model (nn.Module): 待转换模型,不需要加载模型状态字典
+        """
         raise NotImplementedError
     
-    @abstractmethod
-    def get_quantizer_config(self) -> Config:
+    @property
+    def quantizer_config(self) -> Config:
         raise NotImplementedError

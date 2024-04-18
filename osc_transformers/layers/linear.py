@@ -2,6 +2,7 @@ import torch.nn as nn
 import torch
 import torch.nn.functional as F
 from ..config import registry
+from ..utils import find_multiple
 
 
 
@@ -22,21 +23,16 @@ class WeightOnlyInt8Linear(nn.Module):
         self,
         in_features: int,
         out_features: int,
-        bias: bool = False,
-        device = None,
-        dtype = None,
     ):
-        # factory_kwargs = {'device': device, 'dtype': dtype}
         super().__init__()
         
         self.in_features = in_features
         self.out_features = out_features
-        self.bias = bias
         self.register_buffer("weight", torch.empty((out_features, in_features), dtype=torch.int8))
         self.register_buffer("scales", torch.ones(out_features, dtype=torch.bfloat16))
         
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        return F.linear(input, self.weight.to(dtype=input.dtype), bias=self.bias) * self.scales
+        return F.linear(input, self.weight.to(dtype=input.dtype)) * self.scales
     
 
 @registry.layers.register("WeightOnlyInt4Linear")
@@ -50,12 +46,9 @@ class WeightOnlyInt4Linear(torch.nn.Module):
             self, 
             in_features: int, 
             out_features: int,
-            bias=True, 
-            device=None, 
-            dtype=None, 
+            bias=False,  
             groupsize: int = 128, 
-            inner_k_tiles: int = 8, 
-            use_cuda=True,
+            inner_k_tiles: int = 8,
     ) -> None:
         super().__init__()
         self.padding = not self._check_linear_int4_k(in_features, groupsize, inner_k_tiles)
@@ -108,18 +101,3 @@ class WeightOnlyInt4Linear(torch.nn.Module):
         new_shape = origin_x_size[:-1] + (out_features,)
         c = c.reshape(new_shape)
         return c
-    
-
-def find_multiple(n: int, k: int) -> int:
-    """Find the smallest multiple of k that is greater than or equal to n.
-
-    Args:
-        n (int): the number to find the multiple of k for.
-        k (int): the number to find the multiple of.
-
-    Returns:
-        int: the smallest multiple of k that is greater than or equal to n.
-    """
-    if n % k == 0:
-        return n
-    return n + k - (n % k)

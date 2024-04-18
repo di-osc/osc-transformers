@@ -4,8 +4,10 @@ from typing import Dict
 import torch
 from typing import Literal
 from osc_transformers.config import Config
-from osc_transformers.utils import build_from_config
+from osc_transformers.utils import build_model
 from osc_transformers.quantizers import WeightOnlyInt4Quantizer, WeightOnlyInt8Quantizer
+from osc_transformers.tokenizer import Tokenizer
+from wasabi import msg
 
 
 
@@ -18,6 +20,11 @@ class HFModelHelper:
         with open(self.checkpoint_dir / "config.json", "r") as f:
             self.hf_config = json.load(f)
         assert self.hf_architecture in self.hf_config['architectures'], f'Only support {self.hf_architecture} model, current model is {self.hf_config["architectures"]}'
+        try:
+            self.tokenizer = Tokenizer(self.checkpoint_dir)
+        except Exception:
+            msg.warn("No tokenizer found")
+            self.tokenizer = None
     
     @property
     def weight_map(self) -> Dict:
@@ -91,26 +98,45 @@ class HFModelHelper:
         self.osc_config.to_disk(self.checkpoint_dir / config_name)
         torch.save(sd, self.checkpoint_dir / model_name)
         
-    def load_checkpoint(self, checkpoint_name: str = 'osc_model.pth', device: str = 'cuda', dtype: torch.dtype = torch.bfloat16):
-        model = build_from_config(self.osc_config)
+    def load_checkpoint(self, checkpoint_name: str = 'osc_model.pth', device: str = 'cpu'):
+        model = build_model(config=self.osc_config)
         model.load_state_dict(torch.load(str(self.checkpoint_dir / checkpoint_name), mmap=True, weights_only=True), assign=True)
-        model.to(device, dtype=dtype)
+        model.to(device)
         return model.eval()
         
-    def quantize_int8(self, save_name: str = 'osc_model_int8.pth', device: str = 'cuda'):
-        model = self.load_checkpoint(device=device)
+    def quantize_int8(self, save_dir: str):
+        model = self.load_checkpoint()
         helper = WeightOnlyInt8Quantizer()
-        helper.save_quantized_state_dict(model=model, save_path=self.checkpoint_dir / save_name)
+        quantized_model = helper.quantize(model)
+        merged_config: Config = self.osc_config.merge(helper.quantizer_config)
+        save_dir = Path(save_dir)
+        if not save_dir.exists():
+            save_dir.mkdir(parents=True)
+        checkpoint_path = Path(save_dir) / 'osc_model.pth'
+        merged_config_path = Path(save_dir) / "config.cfg"
+        torch.save(quantized_model.state_dict(), checkpoint_path)
+        merged_config.to_disk(merged_config_path)
+        if self.tokenizer:
+            self.tokenizer.save(save_dir)
         
-    def quantize_int4(self, 
+    def quantize_int4(self,
+                      save_dir: str, 
                       groupsize: Literal[32, 64, 128, 256] = 32, 
                       k: Literal[2, 4, 8] = 8, 
-                      padding: bool = True,
-                      save_name: str = 'osc_model_int4-G{groupsize}-K{k}.pth', 
+                      padding: bool = True, 
                       device: str = 'cuda'):
         assert torch.cuda.is_available(), 'Only support cuda device for int4 quantization'
         assert 'cuda' in device, 'Only support cuda device for int4 quantization'
-        save_name = save_name.format(groupsize=groupsize, k=k)
         model = self.load_checkpoint(device=device)
         helper = WeightOnlyInt4Quantizer(groupsize=groupsize, inner_k_tiles=k, padding_allowed=padding)
-        helper.save_quantized_state_dict(model=model, save_path=self.checkpoint_dir / save_name)
+        quantized_model = helper.quantize(model)
+        merged_config: Config = self.osc_config.merge(helper.quantizer_config)
+        save_dir = Path(save_dir)
+        if not save_dir.exists():
+            save_dir.mkdir(parents=True)
+        checkpoint_path = save_dir / 'osc_model.pth'
+        merged_config_path = save_dir / "config.cfg"
+        torch.save(quantized_model.state_dict(), checkpoint_path)
+        merged_config.to_disk(merged_config_path)
+        if self.tokenizer:
+            self.tokenizer.save(save_dir)

@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 from typing import Union, Literal
 from pathlib import Path
-from osc_transformers.layers.linear import WeightOnlyInt4Linear, find_multiple
+from osc_transformers.layers.linear import WeightOnlyInt4Linear
+from osc_transformers.utils import find_multiple
 from osc_transformers.quantizers.base import Quantizer
 from osc_transformers.config import registry
 from confection import Config
@@ -20,6 +21,42 @@ class WeightOnlyInt4Quantizer(Quantizer):
         self.padding_allowed = padding_allowed
         assert groupsize in [32, 64, 128, 256]
         assert inner_k_tiles in [2, 4, 8]
+        
+    def quantize(self, model: nn.Module) -> nn.Module:
+        for name, children in model.named_children():
+            if isinstance(children, torch.nn.Linear):
+                out_features = children.out_features
+                in_features = children.in_features
+                assert not children.bias
+                assert out_features % 8 == 0, "require out_features % 8 == 0"
+                weight = children.weight.data
+                if not _check_linear_int4_k(in_features, self.groupsize, self.inner_k_tiles):
+                    if self.padding_allowed:
+                        import torch.nn.functional as F
+                        print(f"warning: {name} is padded to satisfy in_features % 1024 == 0")
+                        padded_in_features = find_multiple(in_features, 1024)
+                        weight = F.pad(weight, pad=(0, padded_in_features - in_features))
+                        in_features = padded_in_features
+                    else:
+                        print(f"warning: {name} is skipped, int4 requires that in_features is 32, 64, or is divisible by 1024, " +
+                            "and that groupsize and inner_k_tiles*16 evenly divide into it")
+                        continue
+                weight_int4pack, scales_and_zeros = prepare_int4_weight_and_scales_and_zeros(
+                    weight.to(torch.bfloat16), self.groupsize, self.inner_k_tiles
+                )
+                int4_linear = WeightOnlyInt4Linear(
+                    in_features=in_features,
+                    out_features=out_features,
+                    groupsize=self.groupsize,
+                    inner_k_tiles=self.inner_k_tiles
+                )
+                int4_linear.weight = weight_int4pack
+                int4_linear.scales_and_zeros = scales_and_zeros
+                setattr(model, name, int4_linear)
+            else:
+                self.quantize(children)
+        return model
+                
 
     @torch.no_grad()
     def save_quantized_state_dict(self, model: nn.Module, save_path: Union[str, Path]):
@@ -46,6 +83,9 @@ class WeightOnlyInt4Quantizer(Quantizer):
                 )
                 cur_state_dict[f"{fqn}.weight"] = weight_int4pack.to('cpu')
                 cur_state_dict[f"{fqn}.scales_and_zeros"] = scales_and_zeros.to('cpu')
+                if cur_state_dict.get(f"{fqn}.bias") is not None:
+                    # remove bias
+                    del cur_state_dict[f"{fqn}.bias"]                
 
         save_path = Path(save_path)
         if save_path.exists():
@@ -56,7 +96,8 @@ class WeightOnlyInt4Quantizer(Quantizer):
         replace_linear_int4(model, self.groupsize, self.inner_k_tiles, self.padding_allowed, use_cuda)
         return model
     
-    def get_quantizer_config(self) -> Config:
+    @property
+    def quantizer_config(self) -> Config:
         config_str = f"""
         [quantizer]
         @quantizers = "WeightOnlyInt4Quantizer"
@@ -82,7 +123,6 @@ def replace_linear_int4(module, groupsize, inner_k_tiles, padding_allowed, use_c
                     bias=False,
                     groupsize=groupsize, 
                     inner_k_tiles=inner_k_tiles, 
-                    use_cuda=use_cuda
                 )
                 setattr(module, name, new_module)
         else:
