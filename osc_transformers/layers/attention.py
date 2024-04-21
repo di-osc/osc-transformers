@@ -72,18 +72,17 @@ class CausalSelfAttention(nn.Module):
             q = apply_rope(q, cos, sin)
             k = apply_rope(k, cos, sin)
             
-        # repeat k and v if necessary
-        if self.n_query_groups != 1 and self.n_query_groups != self.n_heads:  # doing this would require a full kv cache with MQA (inefficient!)
-            # for MHA this is a no-op
-            k = k[:,:,None,:,:].expand(-1, -1, self.n_heads // self.n_query_groups, -1, -1).reshape(B, self.n_heads, L, self.head_size)
-            v = v[:,:,None,:,:].expand(-1, -1, self.n_heads // self.n_query_groups, -1, -1).reshape(B, self.n_heads, L, self.head_size)
-        
         if input_pos is not None:
             if not self.kv_cache:
                 raise TypeError("current attention layer does not support kv_cache, please set `kv_cache` in the layer init")
             if not hasattr(self.kv_cache, "k_cache") or not hasattr(self.kv_cache, "v_cache"):
                 raise TypeError("You need to call `model.setup_kv_cache()`")
             k, v = self.kv_cache.update(input_pos=input_pos, k=k, v=v, copy_dim=2)
+            
+        if self.n_query_groups != 1 and self.n_query_groups != self.n_heads:  # doing this would require a full kv cache with MQA (inefficient!)
+            # for MHA this is a no-op
+            k = k[:,:,None,:,:].expand(-1, -1, self.n_heads // self.n_query_groups, -1, -1).reshape(B, self.n_heads, -1, self.head_size)
+            v = v[:,:,None,:,:].expand(-1, -1, self.n_heads // self.n_query_groups, -1, -1).reshape(B, self.n_heads, -1, self.head_size)
 
         o = self.scaled_dot_product_attention(q, k, v, mask=attention_mask)
 
@@ -107,7 +106,7 @@ class CausalSelfAttention(nn.Module):
                      max_seq_length: int, 
                      device: Optional[torch.device] = None, 
                      dtype: Optional[torch.dtype] = None) -> None:
-        n_heads = 1 if self.n_query_groups == 1 else self.n_heads
+        n_heads = self.n_query_groups
         k_shape = (batch_size, n_heads, max_seq_length, self.head_size)
         v_shape = (batch_size, n_heads, max_seq_length, self.head_size)
         self.kv_cache.setup(k_shape, v_shape, dtype=dtype, device=device)
