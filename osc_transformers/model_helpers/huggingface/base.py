@@ -34,25 +34,31 @@ class HFModelHelper:
     def osc_config(self) -> Config:
         raise NotImplementedError("Method not implemented")
     
-    def convert_checkpoint(self, config_name: str = 'config.cfg', model_name: str = 'osc_model.pth'):
+    def convert_checkpoint(self, save_dir: str):
         """将huggingface模型转换为osc格式模型
 
         Args:
-            config_name (str, optional): 配置文件保存名称. Defaults to 'config.cfg'.
-            model_name (str, optional): 模型文件名称. Defaults to 'osc_model.pth'.
+            save_dir (str): 保存目录
         """
         pytorch_model = Path(self.checkpoint_dir) / 'pytorch_model.bin'
         pytorch_idx_file = Path(self.checkpoint_dir) / 'pytorch_model.bin.index.json'
         if pytorch_model.exists() or pytorch_idx_file.exists():
-            self.convert_pytorch_format(config_name, model_name)
+            sd = self.convert_pytorch_format()
         safetensors_model = Path(self.checkpoint_dir) / 'model.safetensors'
         safetensors_idx_file = Path(self.checkpoint_dir) / 'model.safetensors.index.json'
         if safetensors_model.exists() or safetensors_idx_file.exists():
-            self.convert_safetensor_format(config_name, model_name)
+            sd = self.convert_safetensor_format()
         if not pytorch_model.exists() and not safetensors_model.exists() and not pytorch_idx_file.exists() and not safetensors_idx_file.exists():
             raise FileNotFoundError("No pytorch model file found")
+        out_dir = Path(save_dir)
+        if not out_dir.exists():
+            out_dir.mkdir(parents=True)
+        torch.save(sd, out_dir / 'osc_model.pth')
+        self.osc_config.to_disk(out_dir / 'config.cfg')
+        if self.tokenizer:
+            self.tokenizer.save(out_dir)
     
-    def convert_pytorch_format(self, config_name: str = 'config.cfg', model_name: str = 'osc_model.pth'):
+    def convert_pytorch_format(self):
         sd = {}
         wmap = self.weight_map
         index_file = self.checkpoint_dir / 'pytorch_model.bin.index.json'
@@ -69,11 +75,9 @@ class HFModelHelper:
                 if key not in wmap:
                     continue
                 sd[wmap[key]] = weights[key]
-            
-        self.osc_config.to_disk(self.checkpoint_dir / config_name)
-        torch.save(sd, self.checkpoint_dir / model_name)
+        return sd
         
-    def convert_safetensor_format(self, config_name: str = 'config.cfg', model_name: str = 'osc_model.pth'):
+    def convert_safetensor_format(self):
         sd = {}
         wmap = self.weight_map
         index_file = self.checkpoint_dir / 'model.safetensors.index.json'
@@ -94,9 +98,7 @@ class HFModelHelper:
                     if key not in wmap:
                         continue
                     sd[wmap[key]] = f.get_tensor(key)
-            
-        self.osc_config.to_disk(self.checkpoint_dir / config_name)
-        torch.save(sd, self.checkpoint_dir / model_name)
+        return sd
         
     def load_checkpoint(self, checkpoint_name: str = 'osc_model.pth', device: str = 'cpu'):
         model = build_model(config=self.osc_config)
