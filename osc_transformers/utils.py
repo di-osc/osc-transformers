@@ -29,7 +29,7 @@ def build_model(config: Union[Dict, str, Path, Config],
         with torch.device('meta'):
             resolved = registry.resolve(config=config)
     else:
-        resolved = registry.resolve(config=config)[model_section]
+        resolved = registry.resolve(config=config)
     if model_section not in resolved:
         msg.fail(f"cannot find model section {model_section}")
     else:
@@ -37,7 +37,7 @@ def build_model(config: Union[Dict, str, Path, Config],
     if quantizer_section in resolved and quantize:
         quantizer = resolved[quantizer_section]
         model = quantizer.convert_for_runtime(model=model)
-    return model
+    return model, config
 
 
 def buil_from_checkpoint(checkpoint_dir: Union[str, Path], 
@@ -47,7 +47,8 @@ def buil_from_checkpoint(checkpoint_dir: Union[str, Path],
                          empty_init: bool = True,
                          quantize: bool = True,
                          load_weights_only: bool = True,
-                         load_weights: bool = True):
+                         load_weights: bool = True,
+                         return_config: bool = False):
     """build a model from a checkpoint directory.
 
     Args:
@@ -61,14 +62,15 @@ def buil_from_checkpoint(checkpoint_dir: Union[str, Path],
     """
     checkpoint_dir = Path(checkpoint_dir)
     config_path = Path(checkpoint_dir) / config_name
-    with torch.device('meta'):
-        model = build_model(config_path, 
-                            model_section=model_section,
-                            quantize=quantize,
-                            empty_init=empty_init)
+    model, config = build_model(config_path, 
+                        model_section=model_section,
+                        quantize=quantize,
+                        empty_init=empty_init)
     if load_weights:
         states = torch.load(str(checkpoint_dir / model_name), map_location='cpu', mmap=True, weights_only=load_weights_only)
         model.load_state_dict(states)
+    if return_config:
+        return model, config
     return model
 
 
