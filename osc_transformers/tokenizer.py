@@ -7,6 +7,7 @@ import torch
 class Tokenizer:
     def __init__(self, checkpoint_dir: Union[Path, str]) -> None:
         checkpoint_dir = Path(checkpoint_dir)
+        self.checkpoint_dir = checkpoint_dir
         if not checkpoint_dir.exists():
             raise NotADirectoryError(f"The checkpoint directory does not exist: {str(checkpoint_dir)}")
 
@@ -109,6 +110,8 @@ class Tokenizer:
     
     def save(self, save_dir: str):
         save_dir = Path(save_dir)
+        if save_dir == self.checkpoint_dir:
+            return
         import shutil
         if self.backend == "huggingface":
             shutil.copyfile(self.tokenizer_path, save_dir / self.tokenizer_path.name)
