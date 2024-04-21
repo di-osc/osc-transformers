@@ -1,7 +1,6 @@
 from pathlib import Path
 from typing import Dict, Union
 from osc_transformers.config import Config, registry
-from osc_transformers.quantizers.base import Quantizer
 import torch
 import statistics
 from wasabi import msg
@@ -36,7 +35,7 @@ def build_model(config: Union[Dict, str, Path, Config],
     else:
         model = resolved[model_section]
     if quantizer_section in resolved and quantize:
-        quantizer: Quantizer = resolved[quantizer_section]
+        quantizer = resolved[quantizer_section]
         model = quantizer.convert_for_runtime(model=model)
     return model
 
