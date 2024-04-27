@@ -3,6 +3,7 @@ import torch
 import torch.nn.functional as F
 from ..config import registry
 from ..utils import find_multiple
+import math
 
 
 
@@ -101,3 +102,51 @@ class WeightOnlyInt4Linear(torch.nn.Module):
         new_shape = origin_x_size[:-1] + (out_features,)
         c = c.reshape(new_shape)
         return c
+    
+    
+class LoRALinear(nn.Module):
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        r: int = 0,
+        alpha: int = 1,
+        dropout: float = 0.0,
+        **kwargs
+    ):
+        super().__init__()
+        assert r >= 0, "r must be greater than or equal to 0"
+        self.r = r
+        self.alpha = alpha
+        self.linear = nn.Linear(in_features=in_features, out_features=out_features, **kwargs)
+        if r > 0:
+            self.dropout = nn.Dropout(dropout)
+            self.lora_A = nn.Parameter(torch.empty(r, in_features))
+            self.lora_B = nn.Parameter(torch.empty(out_features, r))
+            self.scale = self.alpha / self.r
+            self.reset_parameters()
+        self.merged = False
+        
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x1 = self.linear(x)
+        if self.merged or self.r == 0:
+            return x1
+        x2 = (self.dropout(x) @ self.lora_A.T @ self.lora_B.T) * self.scale
+        return x1 + x2
+        
+    def reset_parameters(self) -> None:
+        """Reset all the weights, even including pretrained ones."""
+        if hasattr(self, "lora_A"):
+            # initialize A the same way as the default for nn.Linear and B to zero
+            # Wondering why 'a' is equal to math.sqrt(5)?: https://github.com/pytorch/pytorch/issues/15314
+            nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+            nn.init.zeros_(self.lora_B)
+            
+    def get_delta_w(self):
+        return (self.lora_B @ self.lora_A )* self.scale
+    
+    def merge(self):
+        if self.r == 0:
+            return
+        self.linear.weight.data += self.get_delta_w()
+        self.merged = True
