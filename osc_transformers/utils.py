@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Dict, Union
+from typing import Dict, Union, Tuple
 from osc_transformers.config import Config, registry
 import torch
 import statistics
@@ -11,12 +11,17 @@ def build_model(config: Union[Dict, str, Path, Config],
                 model_section: str = 'model',
                 quantizer_section: str = 'quantizer',
                 empty_init: bool = True,
-                quantize: bool = True):
+                quantize: bool = True,
+                return_config: bool = False) -> Union[torch.nn.Module, Tuple[torch.nn.Module, Config]]:
     """Build a model from a configuration.
 
     Args:
         config (Union[Dict, str, Path, Config]): the configuration to build the model from, can be a dictionary, a path to a file or a Config object.
         model_section (str, optional): the section to look for the model in the configuration. Defaults to 'model'.
+        quantizer_section (str, optional): the section to look for the quantizer in the configuration. Defaults to 'quantizer'.
+        empty_init (bool, optional): whether to initialize the model with empty weights. Defaults to True.
+        quantize (bool, optional): whether to quantize the model. Defaults to True.
+        return_config (bool, optional): whether to return the configuration as well. Defaults to False.
 
     Returns:
         torch.nn.Module: the model built from the configuration.
@@ -37,16 +42,18 @@ def build_model(config: Union[Dict, str, Path, Config],
     if quantizer_section in resolved and quantize:
         quantizer = resolved[quantizer_section]
         model = quantizer.convert_for_runtime(model=model)
-    return model, config
+    if return_config:
+        return model, config
+    return model
 
 
-def buil_from_checkpoint(checkpoint_dir: Union[str, Path], 
+def build_from_checkpoint(checkpoint_dir: Union[str, Path], 
                          model_section: str = 'model', 
                          config_name: str = 'config.cfg', 
                          model_name: str = 'osc_model.pth',
                          empty_init: bool = True,
                          quantize: bool = True,
-                         load_weights_only: bool = True,
+                         weights_only: bool = True,
                          load_weights: bool = True,
                          return_config: bool = False):
     """build a model from a checkpoint directory.
@@ -56,18 +63,31 @@ def buil_from_checkpoint(checkpoint_dir: Union[str, Path],
         model_section (str, optional): the section to look for the model in the configuration. Defaults to 'model'.
         config_name (str, optional): the name of the configuration file. Defaults to 'config.cfg'.
         model_name (str, optional): the name of the model file. Defaults to 'osc_model.pth'.
+        empty_init (bool, optional): whether to initialize the model with empty weights which means that the model will be built on meta device. Defaults to True.
+        quantize (bool, optional): whether to convert the model to a quantized model. Defaults to True.
+        weights_only (bool, optional): whether to load only the weights from the checkpoint. Defaults to True.
+        load_weights (bool, optional): whether to load the weights from the checkpoint. Defaults to True.
+        return_config (bool, optional): whether to return the configuration as well. Defaults to False.
 
     Returns:
         torch.nn.Module: the model loaded from the checkpoint.
     """
     checkpoint_dir = Path(checkpoint_dir)
     config_path = Path(checkpoint_dir) / config_name
-    model, config = build_model(config_path, 
-                        model_section=model_section,
-                        quantize=quantize,
-                        empty_init=empty_init)
+    if return_config:
+        model, config = build_model(config_path, 
+                                    model_section=model_section,
+                                    quantize=quantize,
+                                    empty_init=empty_init,
+                                    return_config=return_config)
+    else:
+        model = build_model(config_path, 
+                            model_section=model_section,
+                            quantize=quantize,
+                            empty_init=empty_init,
+                            return_config=return_config)
     if load_weights:
-        states = torch.load(str(checkpoint_dir / model_name), map_location='cpu', mmap=True, weights_only=load_weights_only)
+        states = torch.load(str(checkpoint_dir / model_name), map_location='cpu', mmap=True, weights_only=weights_only)
         model.load_state_dict(states)
     if return_config:
         return model, config
@@ -75,18 +95,24 @@ def buil_from_checkpoint(checkpoint_dir: Union[str, Path],
 
 
 @torch.no_grad()
-def benchmark(model, input, num_iters=10):
+def benchmark(model, num_iters=10, **inputs):
     """Runs the model on the input several times and returns the median execution time."""
     start = torch.cuda.Event(enable_timing=True)
     end = torch.cuda.Event(enable_timing=True)
     times = []
     for _ in range(num_iters):
         start.record()
-        model(input)
+        model(**inputs)
         end.record()
         torch.cuda.synchronize()
         times.append(start.elapsed_time(end) / 1000)
-    return statistics.median(times)
+    msg.info(f"Number of iterations: {num_iters}.")
+    all_time = sum(times)
+    msg.info(f"Total time: {all_time:.4f} s")
+    mean_time = statistics.mean(times)
+    msg.info(f"Mean time: {mean_time:.4f} s")
+    median_time = statistics.median(times)
+    msg.info(f"Median time: {median_time:.4f} s")
 
 
 def find_multiple(n: int, k: int) -> int:
