@@ -1,5 +1,5 @@
 from osc_transformers.config import registry
-from osc_transformers.layers.attention import KVCache
+from osc_transformers.layers.kv_cache import KVCache, StaticKVCache
 import torch.nn as nn
 from typing import Mapping, Optional, Tuple, List, Any
 import torch
@@ -110,7 +110,9 @@ class TransformerDecoder(nn.Module):
                      dtype: Optional[torch.dtype] = None):
         if kv_cache:
             assert isinstance(kv_cache, KVCache), "kv_cache must be an instance of KVCache"
-            self.kv_caches = [deepcopy(kv_cache) for _ in range(self.n_blocks)]
+        else:
+            kv_cache = StaticKVCache()
+        self.kv_caches = [deepcopy(kv_cache) for _ in range(self.n_blocks)]
         if not max_length:
             max_length = self.block_size
         else:
@@ -151,7 +153,7 @@ class TransformerDecoder(nn.Module):
             sin = self.sin.index_select(0, input_pos)
             
             if self.mask_cache is None:
-                raise TypeError("You need to call `model.build_kv_cache()`")
+                raise TypeError("You need to call `model.setup_kv_cache()`")
             mask = self.mask_cache.index_select(2, input_pos)
         else:
             cos = self.cos[:L]
