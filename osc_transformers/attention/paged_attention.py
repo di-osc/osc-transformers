@@ -220,7 +220,7 @@ class PagedAttention(CausalSelfAttention):
         max_length: int,
         num_kvcache_blocks: int,
         block_size: int,
-        device: torch.device,
+        device: torch.device = "cpu",
     ) -> None:
         self.k_cache = torch.zeros(
             num_kvcache_blocks,

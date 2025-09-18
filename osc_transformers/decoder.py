@@ -1,4 +1,4 @@
-from typing import Mapping, List, Any, Self, TYPE_CHECKING
+from typing import Mapping, List, Any, Self
 from copy import deepcopy
 from pathlib import Path
 
@@ -13,9 +13,6 @@ from .embedding import Embedding
 from .feedforward import FeedForward
 from .head import Head
 from .normalization import Normalization
-
-if TYPE_CHECKING:
-    pass
 
 
 class TransformerDecoderLayer(nn.Module):
@@ -65,7 +62,6 @@ class TransformerDecoder(nn.Module):
     def __init__(
         self,
         num_layers: int,
-        max_length: int,
         attention: CausalSelfAttention,
         embedding: Embedding,
         feedforward: FeedForward,
@@ -93,8 +89,6 @@ class TransformerDecoder(nn.Module):
         self.head_norm = norm if self.prenorm else None
         self.head = head
 
-        self.max_length = max_length
-
     def forward(
         self,
         input_ids: torch.Tensor,
@@ -108,12 +102,6 @@ class TransformerDecoder(nn.Module):
         """
         assert len(input_ids.shape) == 1, "input must be 1d"
         L = input_ids.size()[0]
-
-        if self.max_length < L:
-            raise ValueError(
-                f"Cannot forward sequence of length {L}, max seq length is only {self.max_length}."
-            )
-
         if attn_ctx.input_pos is None:
             attn_ctx.input_pos = torch.arange(L, dtype=torch.int32)
 
@@ -163,7 +151,7 @@ class TransformerDecoder(nn.Module):
             )
         return model_size / 1024 / 1024
 
-    def setup(self, **kwargs) -> None:
+    def setup_kv_cache(self, **kwargs) -> None:
         for layer in self.layers:
             layer.attention.set_cache(**kwargs)
 
@@ -192,10 +180,9 @@ class TransformerDecoder(nn.Module):
 
 
 class TransformerDecoderBuilder:
-    def __init__(self, num_layers: int, max_length: int, prenorm: bool = True):
+    def __init__(self, num_layers: int, prenorm: bool = True):
         super().__init__()
         self.num_layers = num_layers
-        self.max_length = max_length
         self.prenorm = prenorm
         self.embedding = None
         self.head = None
@@ -238,7 +225,6 @@ class TransformerDecoderBuilder:
             msg.fail("feedforward is required")
         model = TransformerDecoder(
             num_layers=self.num_layers,
-            max_length=self.max_length,
             prenorm=self.prenorm,
             embedding=self.embedding,
             attention=self.attention,

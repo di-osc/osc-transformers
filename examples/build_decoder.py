@@ -6,7 +6,7 @@ from osc_transformers.registry import Registry
 import torch
 
 # 使用默认注册的组件构建模型
-builder = TransformerDecoderBuilder(num_layers=8, max_length=1024)
+builder = TransformerDecoderBuilder(num_layers=8)
 
 embedding_config = """
 [embedding]
