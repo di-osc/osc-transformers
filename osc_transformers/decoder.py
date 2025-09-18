@@ -59,6 +59,7 @@ class TransformerDecoderLayer(nn.Module):
             x = self.feedforward_norm(self.feedforward(x) + x)
         return x
 
+
 @Registry.architecture.register("TransformerDecoder")
 class TransformerDecoder(nn.Module):
     def __init__(
@@ -169,7 +170,10 @@ class TransformerDecoder(nn.Module):
 
     @classmethod
     def form_config(
-        cls, config: Config | str | Path, model_section: str = "model", empty_init: bool = True
+        cls,
+        config: Config | str | Path,
+        model_section: str = "model",
+        empty_init: bool = True,
     ) -> "TransformerDecoder":
         if isinstance(config, Path):
             config = Config().from_disk(config)
@@ -253,7 +257,3 @@ class TransformerDecoderBuilder:
         with torch.device("meta"):
             model = Registry.resolve(config=config)[section]
         return model
-
-
-# 注册 TransformerDecoder
-# Registry.architecture.register("TransformerDecoder")(TransformerDecoder)
