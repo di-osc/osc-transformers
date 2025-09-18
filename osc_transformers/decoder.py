@@ -105,7 +105,6 @@ class TransformerDecoder(nn.Module):
         Args:
             input_ids (torch.Tensor): Input token ids. shape = (seq_length)
             attn_ctx (AttentionContext): Attention context.
-            input_pos (Optional[torch.Tensor], optional): Input position ids. prefill stage shape = (seq_length) decode stage shape = (batch_size, 1). Defaults to None.
         """
         assert len(input_ids.shape) == 1, "input must be 1d"
         L = input_ids.size()[0]

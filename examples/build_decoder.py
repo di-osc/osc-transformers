@@ -63,6 +63,8 @@ class LayerNorm(Normalization):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return torch.nn.LayerNorm(x, self.weight, self.eps)
+
+
 norm_config = """
 [normalization]
 @normalization = LayerNorm
