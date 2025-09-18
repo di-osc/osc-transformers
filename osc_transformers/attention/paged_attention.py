@@ -79,9 +79,9 @@ class PagedAttention(CausalSelfAttention):
     ):
         super().__init__()
 
-        assert (
-            in_dim % num_heads == 0
-        ), f"dim {in_dim} must be divisible by num_heads {num_heads}"
+        assert in_dim % num_heads == 0, (
+            f"dim {in_dim} must be divisible by num_heads {num_heads}"
+        )
 
         self.num_heads = num_heads
         self.head_dim = head_dim or in_dim // num_heads
