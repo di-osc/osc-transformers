@@ -21,6 +21,8 @@ class Sequence:
         sampling_params=SamplingParams(),
         end_char: str = "[NONE]",
         stream_response: bool = False,
+        max_tokens: int = 1024,
+        ignore_eos: bool = False,
     ):
         self.seq_id = next(Sequence.counter)
         self.status = SequenceStatus.WAITING
@@ -31,8 +33,8 @@ class Sequence:
         self.num_cached_tokens = 0
         self.block_table = []
         self.temperature = sampling_params.temperature
-        self.max_tokens = sampling_params.max_tokens
-        self.ignore_eos = sampling_params.ignore_eos
+        self.max_tokens = max_tokens
+        self.ignore_eos = ignore_eos
         self.end_char = end_char
         self.stream_response = stream_response
 

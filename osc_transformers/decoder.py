@@ -1,4 +1,4 @@
-from typing import Mapping, List, Any, Tuple, Generator
+from typing import Mapping, List, Any, Generator
 from copy import deepcopy
 from pathlib import Path
 from queue import Queue
@@ -59,6 +59,7 @@ class TransformerDecoder(nn.Module):
         self.scheduler = None
 
         self.input_queue = Queue()
+        self.response_queues = {}
 
     def forward(
         self,
@@ -95,16 +96,23 @@ class TransformerDecoder(nn.Module):
 
     def main_loop(self):
         while True:
-            scheduled_seqs, is_prefill = self.scheduler.schedule()
-            if len(scheduled_seqs) == 0:
-                time.sleep(0.01)
-                continue
-            if is_prefill:
-                self.prefill(scheduled_seqs)
-            else:
-                self.decode(scheduled_seqs)
+            try:
+                scheduled_seqs, is_prefill = self.scheduler.schedule()
+                if len(scheduled_seqs) == 0:
+                    time.sleep(0.01)
+                    continue
+                if is_prefill:
+                    _ = self.prefill(scheduled_seqs)
+                    self.scheduler.check_finished(scheduled_seqs)
+                else:
+                    _ = self.decode(scheduled_seqs)
+                    self.scheduler.check_finished(scheduled_seqs)
+            except Exception as e:
+                print(e)
+                break
 
-    def prefill(self, seqs: List[Tuple[Sequence, Queue]]) -> List[Sequence]:
+    @torch.inference_mode()
+    def prefill(self, seqs: List[Sequence]) -> List[Sequence]:
         input_ids = []
         positions = []
         cu_seqlens_q = [0]
@@ -113,7 +121,7 @@ class TransformerDecoder(nn.Module):
         max_seqlen_k = 0
         slot_mapping = []
         block_tables = None
-        for seq, _ in seqs:
+        for seq in seqs:
             seqlen = len(seq)
             input_ids.extend(seq[seq.num_cached_tokens :])
             positions.extend(list(range(seq.num_cached_tokens, seqlen)))
@@ -126,9 +134,9 @@ class TransformerDecoder(nn.Module):
             if not seq.block_table:
                 continue
             for i in range(seq.num_cached_blocks, seq.num_blocks):
-                start = seq.block_table[i] * self.block_size
+                start = seq.block_table[i] * self.scheduler.block_manager.block_size
                 if i != seq.num_blocks - 1:
-                    end = start + self.block_size
+                    end = start + self.scheduler.block_manager.block_size
                 else:
                     end = start + seq.last_block_num_tokens
                 slot_mapping.extend(list(range(start, end)))
@@ -160,22 +168,26 @@ class TransformerDecoder(nn.Module):
             block_tables=block_tables,
         )
         logits = self.compute_logits(self.forward(input_ids, attn_ctx))
-        temperatures = self.prepare_sample([seq[0] for seq in seqs])
+        temperatures = self.prepare_sample([seq for seq in seqs])
         token_ids = self.sampler(logits, temperatures).tolist()
-        seqs = self.scheduler.postprocess(seqs, token_ids)
+        for seq, token_id in zip(seqs, token_ids):
+            seq.append_token(token_id)
         return seqs
 
-    def decode(self, seqs: list[Tuple[Sequence, Queue]]) -> list[Sequence]:
+    @torch.inference_mode()
+    def decode(self, seqs: List[Sequence]) -> List[Sequence]:
         input_ids = []
         positions = []
         slot_mapping = []
         context_lens = []
-        for seq, _ in seqs:
+        for seq in seqs:
             input_ids.append(seq.last_token)
             positions.append(len(seq))
             context_lens.append(len(seq))
             slot_mapping.append(
-                seq.block_table[-1] * self.block_size + seq.last_block_num_tokens - 1
+                seq.block_table[-1] * self.scheduler.block_manager.block_size
+                + seq.last_block_num_tokens
+                - 1
             )
         input_ids = torch.tensor(input_ids, dtype=torch.int64, pin_memory=True).cuda(
             non_blocking=True
@@ -189,7 +201,7 @@ class TransformerDecoder(nn.Module):
         context_lens = torch.tensor(
             context_lens, dtype=torch.int32, pin_memory=True
         ).cuda(non_blocking=True)
-        block_tables = self.prepare_block_tables([seq[0] for seq in seqs])
+        block_tables = self.prepare_block_tables([seq for seq in seqs])
         attn_ctx = AttentionContext(
             input_pos=positions,
             is_prefill=False,
@@ -215,12 +227,13 @@ class TransformerDecoder(nn.Module):
             )
             graph.replay()
             logits = self.compute_logits(graph_vars["outputs"][:bs])
-        temperatures = self.prepare_sample([seq[0] for seq in seqs])
+        temperatures = self.prepare_sample([seq for seq in seqs])
         token_ids = self.sampler(logits, temperatures).tolist()
-        seqs = self.scheduler.postprocess(seqs, token_ids)
+        for seq, token_id in zip(seqs, token_ids):
+            seq.append_token(token_id)
         return seqs
 
-    def prepare_sample(self, seqs: list[Sequence]):
+    def prepare_sample(self, seqs: List[Sequence]):
         temperatures = []
         for seq in seqs:
             temperatures.append(seq.temperature)
@@ -229,7 +242,7 @@ class TransformerDecoder(nn.Module):
         ).cuda(non_blocking=True)
         return temperatures
 
-    def prepare_block_tables(self, seqs: list[Sequence]):
+    def prepare_block_tables(self, seqs: List[Sequence]):
         max_len = max(len(seq.block_table) for seq in seqs)
         block_tables = [
             seq.block_table + [-1] * (max_len - len(seq.block_table)) for seq in seqs
@@ -243,12 +256,20 @@ class TransformerDecoder(nn.Module):
         self,
         max_num_seqs: int,
         max_model_len: int,
-        num_kvcache_blocks: int,
+        num_kvcache_blocks: int | None = None,
         max_num_batched_tokens: int | None = None,
         eos: int | None = None,
-        block_size: int = 128,
-        cuda_graph: bool = False,
+        block_size: int = 256,
+        cuda_graph: bool = True,
+        start_run: bool = False,
+        dtype: torch.dtype = torch.float16,
+        device: str = "cuda",
     ) -> None:
+        torch.set_default_device(device)
+        torch.set_default_dtype(dtype)
+        self.to(device=device, dtype=dtype)
+        if num_kvcache_blocks is None:
+            num_kvcache_blocks = max_model_len // block_size
         if max_num_batched_tokens is None:
             max_num_batched_tokens = max_model_len * 4
         self.scheduler = Scheduler(
@@ -263,38 +284,50 @@ class TransformerDecoder(nn.Module):
                 num_kvcache_blocks=num_kvcache_blocks,
                 block_size=block_size,
                 max_length=max_model_len,
+                device=device,
             )
         if cuda_graph:
             self.capture_cudagraph(
                 max_num_seqs=max_num_seqs, max_model_len=max_model_len
             )
-        self.run_thread = Thread(target=self.main_loop, daemon=True)
-        self.run_thread.start()
+        if start_run:
+            self.run_thread = Thread(target=self.main_loop, daemon=True)
+            self.run_thread.start()
+        else:
+            self.run_thread = None
+        torch.set_default_dtype(torch.get_default_dtype())
 
-    def batch(self, seqs: list[Sequence]):
+    def batch(self, seqs: List[Sequence], timeout: float = 2):
         response_queue = Queue()
         num_seqs = len(seqs)
         results = []
         for seq in seqs:
+            self.response_queues[seq.seq_id] = response_queue
             self.scheduler.add(seq, response_queue)
-        for seq in response_queue.get():
+        while True:
+            seq = response_queue.get(timeout=timeout)
             results.append(seq)
             if len(results) == num_seqs:
                 break
         return results
 
-    def stream(self, seq: Sequence) -> Generator[int, None, None]:
+    def stream(self, seq: Sequence, timeout: float = 2) -> Generator[int, None, None]:
         response_queue = Queue()
+        self.response_queues[seq.seq_id] = response_queue
+        seq.stream_response = True
         self.scheduler.add(seq, response_queue)
-        for token_id in response_queue.get():
-            yield token_id
+        while True:
+            token_id = response_queue.get(timeout=timeout)
             if token_id == seq.end_char:
                 break
+            yield token_id
 
     @torch.inference_mode()
     def capture_cudagraph(self, max_num_seqs: int, max_model_len: int):
         max_bs = min(max_num_seqs, 512)
-        max_num_blocks = (max_model_len + self.block_size - 1) // self.block_size
+        max_num_blocks = (
+            max_model_len + self.scheduler.block_manager.block_size - 1
+        ) // self.scheduler.block_manager.block_size
         input_ids = torch.zeros(max_bs, dtype=torch.int64)
         input_pos = torch.zeros(max_bs, dtype=torch.int64)
         slot_mapping = torch.zeros(max_bs, dtype=torch.int32)
@@ -314,9 +347,9 @@ class TransformerDecoder(nn.Module):
                 context_lens=context_lens[:bs],
                 block_tables=block_tables[:bs],
             )
-            outputs[:bs] = self.model(input_ids[:bs], attn_ctx)  # warmup
+            outputs[:bs] = self.forward(input_ids[:bs], attn_ctx)  # warmup
             with torch.cuda.graph(graph, self.graph_pool):
-                outputs[:bs] = self.model(input_ids[:bs], attn_ctx)  # capture
+                outputs[:bs] = self.forward(input_ids[:bs], attn_ctx)  # capture
             if self.graph_pool is None:
                 self.graph_pool = graph.pool()
             self.graphs[bs] = graph
@@ -366,7 +399,7 @@ class TransformerDecoder(nn.Module):
         cls,
         config: Config | str | Path,
         model_section: str = "model",
-        empty_init: bool = True,
+        empty_init: bool = False,
     ) -> "TransformerDecoder":
         if isinstance(config, Path):
             config = Config().from_disk(config)

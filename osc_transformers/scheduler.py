@@ -1,6 +1,6 @@
 from collections import deque
 from queue import Queue
-from typing import Tuple, List
+from typing import List
 
 from .sequence import Sequence, SequenceStatus
 from .block_manager import BlockManager
@@ -21,12 +21,14 @@ class Scheduler:
         self.block_manager = BlockManager(num_kvcache_blocks, kvcache_block_size)
         self.waiting: deque[Sequence] = deque()
         self.running: deque[Sequence] = deque()
+        self.response_queues: dict[int, Queue] = {}
 
-    def is_finished(self):
+    def is_finished(self) -> bool:
         return not self.waiting and not self.running
 
-    def add(self, seq: Sequence, response_queue: Queue):
-        self.waiting.append((seq, response_queue))
+    def add(self, seq: Sequence, response_queue: Queue) -> None:
+        self.waiting.append(seq)
+        self.response_queues[seq.seq_id] = response_queue
 
     def schedule(self) -> tuple[list[Sequence], bool]:
         # prefill
@@ -34,7 +36,7 @@ class Scheduler:
         num_seqs = 0
         num_batched_tokens = 0
         while self.waiting and num_seqs < self.max_num_seqs:
-            seq, response_queue = self.waiting[0]
+            seq = self.waiting[0]
             if num_batched_tokens + len(
                 seq
             ) > self.max_num_batched_tokens or not self.block_manager.can_allocate(seq):
@@ -43,15 +45,15 @@ class Scheduler:
             self.block_manager.allocate(seq)
             num_batched_tokens += len(seq) - seq.num_cached_tokens
             seq.status = SequenceStatus.RUNNING
-            self.waiting.popleft()
-            self.running.append((seq, response_queue))
-            scheduled_seqs.append((seq, response_queue))
+            seq = self.waiting.popleft()
+            self.running.append(seq)
+            scheduled_seqs.append(seq)
         if scheduled_seqs:
             return scheduled_seqs, True
 
         # decode
         while self.running and num_seqs < self.max_num_seqs:
-            seq, response_queue = self.running.popleft()
+            seq = self.running.popleft()
             while not self.block_manager.can_append(seq):
                 if self.running:
                     self.preempt(self.running.pop())
@@ -61,30 +63,29 @@ class Scheduler:
             else:
                 num_seqs += 1
                 self.block_manager.may_append(seq)
-                scheduled_seqs.append((seq, response_queue))
+                scheduled_seqs.append(seq)
         if scheduled_seqs:
             self.running.extendleft(reversed(scheduled_seqs))
             return scheduled_seqs, False
         return scheduled_seqs, None
 
-    def preempt(self, seq: Sequence, response_queue: Queue):
+    def preempt(self, seq: Sequence) -> None:
         seq.status = SequenceStatus.WAITING
         self.block_manager.deallocate(seq)
-        self.waiting.appendleft((seq, response_queue))
+        self.waiting.appendleft(seq)
 
-    def postprocess(
-        self, seqs: List[Tuple[Sequence, Queue]], token_ids: list[int]
-    ) -> list[bool]:
-        for (seq, response_queue), token_id in zip(seqs, token_ids):
-            seq.append_token(token_id)
+    def check_finished(self, seqs: List[Sequence]) -> None:
+        for seq in seqs:
+            response_queue = self.response_queues[seq.seq_id]
             if seq.stream_response:
-                response_queue.put(token_id)
+                response_queue.put(seq.last_token)
             if (
-                not seq.ignore_eos and token_id == self.eos
+                not seq.ignore_eos and seq.last_token == self.eos
             ) or seq.num_completion_tokens == seq.max_tokens:
                 seq.status = SequenceStatus.FINISHED
                 self.block_manager.deallocate(seq)
-                self.running.remove((seq, response_queue))
+                self.running.remove(seq)
+                del self.response_queues[seq.seq_id]
                 if not seq.stream_response:
                     response_queue.put(seq)
                 if seq.stream_response:
