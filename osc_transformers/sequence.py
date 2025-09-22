@@ -1,6 +1,7 @@
 from copy import copy
 from enum import Enum, auto
 from itertools import count
+from typing import List
 
 from .sampler import SamplingParams
 
@@ -17,7 +18,7 @@ class Sequence:
 
     def __init__(
         self,
-        token_ids: list[int],
+        token_ids: List[int],
         sampling_params=SamplingParams(),
         end_char: str = "[NONE]",
         stream_response: bool = False,
@@ -37,12 +38,6 @@ class Sequence:
         self.ignore_eos = ignore_eos
         self.end_char = end_char
         self.stream_response = stream_response
-
-    def __len__(self):
-        return self.num_tokens
-
-    def __getitem__(self, key):
-        return self.token_ids[key]
 
     @property
     def is_finished(self):
@@ -72,11 +67,12 @@ class Sequence:
     def last_block_num_tokens(self):
         return self.num_tokens - (self.num_blocks - 1) * self.block_size
 
-    def block(self, i):
+    def block(self, i: int) -> List[int]:
+        """get token ids of the i-th block"""
         assert 0 <= i < self.num_blocks
         return self.token_ids[i * self.block_size : (i + 1) * self.block_size]
 
-    def append_token(self, token_id: int):
+    def append_token(self, token_id: int) -> None:
         self.token_ids.append(token_id)
         self.last_token = token_id
         self.num_tokens += 1
@@ -101,3 +97,9 @@ class Sequence:
             self.token_ids = state[-1]
         else:
             self.last_token = state[-1]
+
+    def __len__(self):
+        return self.num_tokens
+
+    def __getitem__(self, key):
+        return self.token_ids[key]
