@@ -17,6 +17,8 @@ dependencies = [
     "wasabi>=1.1.2",
     # 哈希
     "xxhash>=3.4.1",
+    # 命令行
+    "jsonargparse>=4.40.1",
 ]
 
 [[tool.uv.index]]
@@ -31,6 +33,9 @@ url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 name = "pypi"
 url = "https://pypi.org/simple"
 default = true
+
+[project.scripts]
+osc-transformers = "osc_transformers.__main__:bench"
 
 [build-system]
 requires = ["hatchling"]
