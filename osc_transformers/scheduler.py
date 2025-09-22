@@ -2,6 +2,8 @@ from collections import deque
 from queue import Queue
 from typing import List
 
+from loguru import logger
+
 from .sequence import Sequence, SequenceStatus
 from .block_manager import BlockManager
 
@@ -26,9 +28,12 @@ class Scheduler:
     def is_finished(self) -> bool:
         return not self.waiting and not self.running
 
-    def add(self, seq: Sequence, response_queue: Queue) -> None:
+    def add(self, seq: Sequence, response_queue: Queue = None) -> None:
         self.waiting.append(seq)
-        self.response_queues[seq.seq_id] = response_queue
+        if response_queue is not None:
+            self.response_queues[seq.seq_id] = response_queue
+        else:
+            self.response_queues[seq.seq_id] = Queue()
 
     def schedule(self) -> tuple[list[Sequence], bool]:
         # prefill
@@ -37,15 +42,17 @@ class Scheduler:
         num_batched_tokens = 0
         while self.waiting and num_seqs < self.max_num_seqs:
             seq = self.waiting[0]
-            if num_batched_tokens + len(
-                seq
-            ) > self.max_num_batched_tokens or not self.block_manager.can_allocate(seq):
+            if num_batched_tokens + len(seq) > self.max_num_batched_tokens:
+                logger.warning("batched tokens exceed max_num_batched_tokens")
+                break
+            if not self.block_manager.can_allocate(seq):
+                logger.warning("can not allocate block")
                 break
             num_seqs += 1
             self.block_manager.allocate(seq)
             num_batched_tokens += len(seq) - seq.num_cached_tokens
             seq.status = SequenceStatus.RUNNING
-            seq = self.waiting.popleft()
+            self.waiting.popleft()
             self.running.append(seq)
             scheduled_seqs.append(seq)
         if scheduled_seqs:
