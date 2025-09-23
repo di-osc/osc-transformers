@@ -19,6 +19,7 @@ dependencies = [
     "xxhash>=3.4.1",
     # 命令行
     "jsonargparse>=4.40.1",
+    "numpy"
 ]
 
 [[tool.uv.index]]
