@@ -31,13 +31,13 @@ class Scheduler:
         return not self.waiting and not self.running
 
     def add(self, seq: Sequence, response_queue: Queue = None) -> None:
-        assert (
-            seq.status == SequenceStatus.WAITING
-        ), f"new seq must be waiting, but got {seq.status}"
+        assert seq.status == SequenceStatus.WAITING, (
+            f"new seq must be waiting, but got {seq.status}"
+        )
         self.waiting.append(seq)
-        assert (
-            seq.seq_id not in self.response_queues
-        ), "seq {} already in response_queues".format(seq.seq_id)
+        assert seq.seq_id not in self.response_queues, (
+            "seq {} already in response_queues".format(seq.seq_id)
+        )
         if response_queue is not None:
             self.response_queues[seq.seq_id] = response_queue
         else:
