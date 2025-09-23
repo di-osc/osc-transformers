@@ -121,6 +121,13 @@ osc-transformers bench examples/decoder.cfg --num_seqs 64 --max_input_len 1024 -
 |---------|---------|
 | 4090 | 5200 |
 
+## 📚 致谢
+
+本项目核心代码主要来自于以下项目：
+
+- [nano-vllm](https://github.com/GeeeekExplorer/nano-vllm)
+- [Flash Attention](https://github.com/Dao-AILab/flash-attention)
+
 ## 🤝 贡献
 
 欢迎提交 Issue 和 Pull Request！
