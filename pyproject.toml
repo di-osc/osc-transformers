@@ -14,11 +14,12 @@ dependencies = [
     "confection>=0.1.4",
     "catalogue>=2.0.1",
     # 日志打印
-    "wasabi>=1.1.2",
+    "loguru>=0.7.3",
     # 哈希
     "xxhash>=3.4.1",
     # 命令行
     "jsonargparse>=4.40.1",
+    # 数据处理
     "numpy"
 ]
 
