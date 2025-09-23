@@ -65,26 +65,6 @@ from osc_transformers import TransformerDecoder
 model = TransformerDecoder.from_config("model.cfg")
 ```
 
-### 使用 Builder
-
-```python
-from osc_transformers import TransformerDecoderBuilder
-
-builder = TransformerDecoderBuilder(num_layers=12, max_length=2048)
-builder.set_attention("@attention = PagedAttention\nin_dim = 768\nnum_heads = 12")
-model = builder.build()
-```
-
-## 🔧 自定义组件
-
-```python
-from osc_transformers.registry import Registry
-
-@Registry.normalization.register("MyNorm")
-class MyNorm(nn.Module):
-    # 自定义实现
-    pass
-```
 
 ## 🤝 贡献
 
