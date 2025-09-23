@@ -105,7 +105,7 @@ class TransformerDecoder(nn.Module):
                     _ = self.decode(scheduled_seqs)
                     self.scheduler.check_finished(scheduled_seqs)
             except Exception as e:
-                print(e)
+                logger.error(e)
                 break
 
     def prepare_prefill(
