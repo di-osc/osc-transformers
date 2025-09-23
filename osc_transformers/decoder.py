@@ -268,8 +268,7 @@ class TransformerDecoder(nn.Module):
     def setup(
         self,
         max_model_len: int = 4096,
-        num_kvcache_blocks: int | None = None,
-        max_num_batched_tokens: int | None = None,
+        gpu_memory_utilization: float = 0.5,
         eos: int | None = None,
         max_num_seqs: int = 512,
         block_size: int = 256,
@@ -280,13 +279,43 @@ class TransformerDecoder(nn.Module):
         torch.set_default_device(device)
         torch.set_default_dtype(dtype)
         self.to(device=device, dtype=dtype)
-        logger.info("setup transformer decoder")
-        if num_kvcache_blocks is None:
-            num_kvcache_blocks = (max_model_len // block_size + 1) * 10
-        logger.info(f"num_kvcache_blocks: {num_kvcache_blocks}")
-        if max_num_batched_tokens is None:
-            max_num_batched_tokens = max_model_len * max_num_seqs
-        logger.info(f"max_num_batched_tokens: {max_num_batched_tokens}")
+        logger.info("🏗️  Initializing TransformerDecoder architecture")
+        free, total = torch.cuda.mem_get_info()
+        used = total - free
+        peak = torch.cuda.memory_stats()["allocated_bytes.all.peak"]
+        current = torch.cuda.memory_stats()["allocated_bytes.all.current"]
+        num_kv_heads = self.layers[0].attention.num_kv_heads
+        kv_head_dim = self.layers[0].attention.kv_head_dim
+        block_bytes = (
+            2
+            * self.num_layers
+            * block_size
+            * num_kv_heads
+            * kv_head_dim
+            * dtype.itemsize
+        )
+        num_kvcache_blocks = (
+            int(total * gpu_memory_utilization - used - peak + current) // block_bytes
+        )
+        if num_kvcache_blocks <= 0:
+            raise ValueError("Not enough GPU memory to allocate KV cache")
+        max_num_batched_tokens = num_kvcache_blocks * block_size
+        kv_cache_memory = num_kvcache_blocks * block_bytes
+
+        def format_bytes(bytes_val):
+            """Format bytes to human readable format"""
+            for unit in ["B", "KB", "MB", "GB"]:
+                if bytes_val < 1024.0:
+                    return f"{bytes_val:.1f} {unit}"
+                bytes_val /= 1024.0
+            return f"{bytes_val:.1f} TB"
+
+        logger.info(
+            f"💾 KV Cache configured: {num_kvcache_blocks} blocks "
+            f"({format_bytes(kv_cache_memory)} for cache, "
+            f"{gpu_memory_utilization:.1%} of {format_bytes(total)} GPU memory), "
+            f"max {max_num_batched_tokens} batched tokens ({block_size} tokens/block)"
+        )
         self.scheduler = Scheduler(
             max_num_seqs=max_num_seqs,
             max_num_batched_tokens=max_num_batched_tokens,
@@ -303,18 +332,17 @@ class TransformerDecoder(nn.Module):
                 dtype=dtype,
             )
         if cuda_graph:
-            logger.info("capture cuda graph")
+            logger.info("⚡ Capturing CUDA Graph for acceleration")
             self.enable_cuda_graph = True
             self.capture_cudagraph(
                 max_num_seqs=max_num_seqs,
                 max_model_len=max_model_len,
                 block_size=block_size,
             )
-        logger.info("start run loop in background")
+        logger.info("🚀 Starting inference loop in background thread")
         self.run_thread = Thread(target=self._run_loop, daemon=True)
         self.run_thread.name = "transfomer_decoder"
         self.run_thread.start()
-        torch.set_default_dtype(torch.get_default_dtype())
 
     def batch(self, seqs: List[Sequence], timeout: float | None = None):
         assert self.run_thread is not None, "decoder is not running"

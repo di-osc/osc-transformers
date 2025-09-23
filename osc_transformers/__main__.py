@@ -12,6 +12,7 @@ def bench(
     num_seqs: int = 64,
     max_input_len: int = 1024,
     max_output_len: int = 1024,
+    gpu_memory_utilization: float = 0.9,
 ):
     """bench transformer decoder
 
@@ -25,7 +26,7 @@ def bench(
     max_model_len = max_input_len + max_output_len
     model.setup(
         max_model_len=max_model_len,
-        num_kvcache_blocks=max_model_len * num_seqs // 256,
+        gpu_memory_utilization=gpu_memory_utilization,
     )
 
     def create_seqs(num_seqs: int) -> list[Sequence]:
@@ -44,17 +45,17 @@ def bench(
         return seqs
 
     # warmup
-    logger.info("start warmup")
+    logger.info("🔥 Warming up the model")
     _ = model.batch(create_seqs(1))
     # bench
-    logger.info("start bench")
+    logger.info("📊 Starting performance benchmark")
     seqs = create_seqs(num_seqs=num_seqs)
     start_time = time.perf_counter()
     seqs = model.batch(seqs=seqs)
     end_time = time.perf_counter()
     total_tokens = sum(seq.max_generate_tokens for seq in seqs)
     throughput = total_tokens / (end_time - start_time)
-    logger.success(f"Throughput: {throughput:.2f} tokens/s")
+    logger.success(f"🎯 Benchmark complete! Throughput: {throughput:.2f} tokens/s")
 
 
 def run_cli():
