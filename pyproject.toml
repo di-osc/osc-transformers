@@ -35,7 +35,7 @@ url = "https://pypi.org/simple"
 default = true
 
 [project.scripts]
-osc-transformers = "osc_transformers.__main__:bench"
+osc-transformers = "osc_transformers.__main__:run_cli"
 
 [build-system]
 requires = ["hatchling"]
