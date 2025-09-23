@@ -422,10 +422,11 @@ class TransformerDecoder(nn.Module):
         if isinstance(config, Path):
             config = Config().from_disk(config)
         elif isinstance(config, str):
-            if Path(config).exists():
+            try:
                 config = Config().from_disk(config)
-            else:
+            except Exception:
                 config = Config().from_str(config)
+
         if model_section not in config:
             raise ValueError(f"{model_section} section is required")
         if empty_init:
