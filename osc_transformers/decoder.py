@@ -316,7 +316,7 @@ class TransformerDecoder(nn.Module):
             self.run_thread = None
         torch.set_default_dtype(torch.get_default_dtype())
 
-    def batch(self, seqs: List[Sequence], timeout: float | None = None):
+    def generate(self, seqs: List[Sequence], timeout: float | None = None):
         assert self.run_thread is not None, "decoder is not running"
         response_queue = Queue()
         num_seqs = len(seqs)
@@ -341,18 +341,6 @@ class TransformerDecoder(nn.Module):
             if token_id == seq.end_char:
                 break
             yield token_id
-
-    def generate(self, seqs: List[Sequence]) -> List[Sequence]:
-        for seq in seqs:
-            self.scheduler.add(seq)
-        while not self.scheduler.is_finished():
-            scheduled_seqs, is_prefill = self.scheduler.schedule()
-            if is_prefill:
-                self.prefill(scheduled_seqs)
-            else:
-                self.decode(scheduled_seqs)
-            self.scheduler.check_finished(scheduled_seqs)
-        return seqs
 
     @torch.inference_mode()
     def capture_cudagraph(self, max_num_seqs: int, max_model_len: int):
