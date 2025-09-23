@@ -94,10 +94,11 @@ bias = "False"
 in_dim = 1024
 eps = 0.000001
 ```
-
-构建模型：
+代码示例：
 ```python
 from osc_transformers import TransformerDecoder, Sequence, SamplingParams
+
+# 构建模型
 model = TransformerDecoder.from_config("model.cfg")
 model.setup(gpu_memory_utilization=0.9, max_model_len=40960, device="cuda:0")
 
