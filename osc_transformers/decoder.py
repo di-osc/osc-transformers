@@ -316,7 +316,7 @@ class TransformerDecoder(nn.Module):
             self.run_thread = None
         torch.set_default_dtype(torch.get_default_dtype())
 
-    def generate(self, seqs: List[Sequence], timeout: float | None = None):
+    def batch(self, seqs: List[Sequence], timeout: float | None = None):
         assert self.run_thread is not None, "decoder is not running"
         response_queue = Queue()
         num_seqs = len(seqs)
