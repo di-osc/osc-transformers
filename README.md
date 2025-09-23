@@ -10,7 +10,7 @@
 
 *Flexible, efficient, and extensible Transformer model building tools*
 
-[📖 Documentation](https://github.com/your-repo/osc-transformers) | [🚀 Quick Start](#-quick-start) | [🤝 Contributing](#-contributing)
+[📖 Documentation](https://github.com/di-osc/osc-transformers) | [🚀 Quick Start](#-quick-start) | [🤝 Contributing](#-contributing)
 
 **中文文档**: [README-zh.md](README-zh.md)
 
@@ -221,21 +221,6 @@ Welcome to contribute code! Please follow these steps:
 4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Create a Pull Request
 
-### Development Environment Setup
-
-```bash
-# Install development dependencies
-pip install -e ".[dev]"
-
-# Format code
-ruff format .
-
-# Run checks
-ruff check .
-
-# Run tests
-python -m pytest
-```
 
 ## 🙏 Acknowledgments
 
@@ -248,7 +233,7 @@ The core code of this project mainly comes from the following projects:
 
 - Author: wangmengdi
 - Email: 790990241@qq.com
-- Project Homepage: https://github.com/your-repo/osc-transformers
+- Project Homepage: https://github.com/di-osc/osc-transformers
 
 ## 📄 License
 
