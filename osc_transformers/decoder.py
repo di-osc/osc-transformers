@@ -279,7 +279,7 @@ class TransformerDecoder(nn.Module):
         torch.set_default_device(device)
         torch.set_default_dtype(dtype)
         self.to(device=device, dtype=dtype)
-        logger.info("🏗️  Initializing TransformerDecoder architecture")
+        logger.info("🏗️  Initializing TransformerDecoder architecture with device: {} and dtype: {}".format(device, dtype))
         free, total = torch.cuda.mem_get_info()
         used = total - free
         peak = torch.cuda.memory_stats()["allocated_bytes.all.peak"]
