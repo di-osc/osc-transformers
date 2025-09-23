@@ -441,7 +441,7 @@ class TransformerDecoder(nn.Module):
         return model_size / 1024 / 1024
 
     @classmethod
-    def form_config(
+    def from_config(
         cls,
         config: Config | str | Path,
         model_section: str = "model",
