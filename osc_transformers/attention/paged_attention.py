@@ -229,6 +229,7 @@ class PagedAttention(CausalSelfAttention):
             self.num_query_groups,
             self.head_dim,
             device=device,
+            dtype=dtype,
         )
         self.v_cache = torch.zeros(
             num_kvcache_blocks,
@@ -236,6 +237,7 @@ class PagedAttention(CausalSelfAttention):
             self.num_query_groups,
             self.head_dim,
             device=device,
+            dtype=dtype,
         )
         self.rope_cos_cache, self.rope_sin_cache = build_rope_cache(
             max_length,
@@ -243,6 +245,14 @@ class PagedAttention(CausalSelfAttention):
             base=self.rope_base,
             device=device,
         )
+
+    @property
+    def num_kv_heads(self) -> int:
+        return self.num_query_groups
+
+    @property
+    def kv_head_dim(self) -> int:
+        return self.head_dim
 
 
 @torch.compile

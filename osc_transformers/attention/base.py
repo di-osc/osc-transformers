@@ -17,3 +17,11 @@ class CausalSelfAttention(nn.Module):
             NotImplementedError: This method should be implemented by the subclass.
         """
         raise NotImplementedError
+
+    @property
+    def num_kv_heads(self) -> int:
+        raise NotImplementedError
+
+    @property
+    def kv_head_dim(self) -> int:
+        raise NotImplementedError
