@@ -2,51 +2,78 @@
 
 # OSC-Transformers
 
-**🚀 基于配置文件的模块化 Transformer 模型构建框架**
+**🚀 Configuration-driven Modular Transformer Model Building Framework**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.8%2B-red.svg)](https://pytorch.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-*灵活、高效、可扩展的 Transformer 模型构建工具*
+*Flexible, efficient, and extensible Transformer model building tools*
+
+[📖 Documentation](https://github.com/your-repo/osc-transformers) | [🚀 Quick Start](#-quick-start) | [🤝 Contributing](#-contributing)
+
+**中文文档**: [README-zh.md](README-zh.md)
 
 </div>
 
-## ✨ 特性
+## ✨ Features
 
-- 🔧 **配置驱动**: 通过简单配置文件构建 Transformer 模型
-- 🧩 **模块化设计**: 支持自定义注册各类组件
-- ⚡ **高性能**: 支持 CUDA Graph 和 Paged Attention
+- 🔧 **Configuration Driven**: Build Transformer models through simple configuration files
+- 🧩 **Modular Design**: Support custom registration of various components
+- ⚡ **High Performance**: Support CUDA Graph and Paged Attention optimization
+- 🎯 **Easy to Use**: Provide configuration file and programmatic ways to build models
+- 🔄 **Flexible Inference**: Support batch generation and streaming generation
+- 📦 **Plug and Play**: Rich built-in components, ready to use
+- 🏗️ **Type Safe**: Complete type annotations, support IDE intelligent prompts
 
-## 🛠️ 支持组件
+## 🏗️ Project Architecture
 
-| 组件类型 | 内置实现 |
-|---------|---------|
-| 注意力机制 | `PagedAttention` |
-| 前馈网络 | `SwiGLU` |
-| 归一化 | `RMSNorm` |
-| 嵌入层 | `VocabEmbedding` |
-| 输出头 | `LMHead` |
+```
+osc_transformers/
+├── attention/          # Attention mechanism components
+├── embedding/          # Embedding layer components
+├── feedforward/        # Feedforward network components
+├── head/              # Output head components
+├── normalization/     # Normalization components
+├── sampler/           # Sampler components
+├── block_manager.py   # Block manager
+├── decoder.py         # Transformer decoder
+├── registry.py        # Component registry system
+├── scheduler.py       # Scheduler
+└── sequence.py        # Sequence management
+```
 
-## 📦 安装
+## 🛠️ Supported Components
 
-- 安装(最新版本pytorch)[https://pytorch.org/]
-- 安装(flash-attn)[https://github.com/Dao-AILab/flash-attention]：建议下载官方构建好的whl包，避免编译问题
-- 安装osc-transformers
+| Component Type | Built-in Implementation | Description |
+|---------|---------|------|
+| **Attention Mechanism** | `PagedAttention` | Efficient Paged Attention implementation |
+| **Feedforward Network** | `SwiGLU` | SwiGLU activation function feedforward network |
+| **Normalization** | `RMSNorm` | RMS normalization |
+| **Embedding Layer** | `VocabEmbedding` | Vocabulary embedding layer |
+| **Output Head** | `LMHead` | Language model output head |
+| **Sampler** | `SimpleSampler` | Simple greedy sampler |
+
+## 📦 Installation
+
+- Install [latest version PyTorch](https://pytorch.org/)
+- Install [flash-attn](https://github.com/Dao-AILab/flash-attention): It is recommended to download the official pre-built whl package to avoid compilation issues
+- Install osc-transformers
 ```bash
 pip install osc-transformers
 ```
 
+## 🚀 Quick Start
 
-## 🚀 快速开始
+### Method 1: Using Configuration File
 
+1. Create configuration file `model.cfg`:
 
-创建 `model.cfg`(Qwen3-0.6B):
 ```toml
 [model]
 @architecture = "TransformerDecoder"
 num_layers = 28
-prenorm = "True"
+prenorm = true
 
 [model.attention]
 @attention = "PagedAttention"
@@ -55,10 +82,10 @@ num_heads = 16
 head_dim = 128
 num_query_groups = 8
 rope_base = 1000000
-q_bias = "False"
-k_bias = "False"
-v_bias = "False"
-o_bias = "False"
+q_bias = false
+k_bias = false
+v_bias = false
+o_bias = false
 
 [model.attention.k_norm]
 @normalization = "RMSNorm"
@@ -79,59 +106,150 @@ embedding_dim = 1024
 @feedforward = "SwiGLU"
 in_dim = 1024
 hidden_dim = 3072
-up_bias = "False"
-gate_bias = "False"
-down_bias = "False"
+up_bias = false
+gate_bias = false
+down_bias = false
 
 [model.head]
 @head = "LMHead"
 in_dim = 1024
 out_dim = 151936
-bias = "False"
+bias = false
 
 [model.norm]
 @normalization = "RMSNorm"
 in_dim = 1024
 eps = 0.000001
 ```
-代码示例：
+
+2. Load and use the model:
+
 ```python
 from osc_transformers import TransformerDecoder, Sequence, SamplingParams
 
-# 构建模型
+# Build model
 model = TransformerDecoder.from_config("model.cfg")
 model.setup(gpu_memory_utilization=0.9, max_model_len=40960, device="cuda:0")
 
-# 批量推理
+# Batch inference
 seqs = [Sequence(token_ids=[1,2,3,4,5,6,7,8,9,10], sampling_params=SamplingParams(temperature=0.5, max_generate_tokens=1024))]
 seqs = model.batch(seqs)
 
-# 流式推理
+# Streaming inference
 seq = Sequence(token_ids=[1,2,3,4,5,6,7,8,9,10], sampling_params=SamplingParams(temperature=0.5, max_generate_tokens=1024))
 for token in model.stream(seq):
     pass
-
 ```
 
-## 📚 推理性能
+## 🔧 Custom Components
+
+### Registering Custom Components
+
+```python
+import torch.nn as nn
+from osc_transformers.registry import Registry
+from osc_transformers.normalization import Normalization
+
+@Registry.normalization.register("CustomRMSNorm")
+class CustomRMSNorm(Normalization):
+    def __init__(self, in_dim: int, eps: float = 1e-6):
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(in_dim))
+        self.eps = eps
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps) * self.weight
+```
+
+### Using in Configuration
+
+```toml
+[model.norm]
+@normalization = "CustomRMSNorm"
+in_dim = 768
+eps = 1e-6
+```
+
+## 📚 API Documentation
+
+### Core Classes
+
+- **`TransformerDecoder`**: Transformer decoder main class
+- **`Sequence`**: Sequence management class
+- **`Registry`**: Component registry system
+
+### Component Interfaces
+
+- **`CausalSelfAttention`**: Self-attention mechanism interface
+- **`FeedForward`**: Feedforward network interface
+- **`Normalization`**: Normalization interface
+- **`Embedding`**: Embedding layer interface
+- **`Head`**: Output head interface
+- **`Sampler`**: Sampler interface
+
+## 🧪 Testing and Examples
+
+View `examples/` directory for complete examples:
+
+- `examples/decoder.cfg`: Complete model configuration file
+- `examples/build_decoder.py`: Builder pattern example
+- `test.ipynb`: Jupyter test notebook
+
+Run tests:
+
+```bash
+python -m pytest tests/
+```
+
+## 📊 Inference Performance
+
 ```bash
 osc-transformers bench examples/decoder.cfg --num_seqs 64 --max_input_len 1024 --max_output_len 1024 --gpu_memory_utilization 0.9
 ```
-| 设备 | 吞吐量 |
+
+| Device | Throughput |
 |---------|---------|
-| 4090 | 5200 |
+| RTX 4090 | 5200 tokens/s |
 
-## 📚 致谢
+## 🤝 Contributing
 
-本项目核心代码主要来自于以下项目：
+Welcome to contribute code! Please follow these steps:
+
+1. Fork the project
+2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Create a Pull Request
+
+### Development Environment Setup
+
+```bash
+# Install development dependencies
+pip install -e ".[dev]"
+
+# Format code
+ruff format .
+
+# Run checks
+ruff check .
+
+# Run tests
+python -m pytest
+```
+
+## 🙏 Acknowledgments
+
+The core code of this project mainly comes from the following projects:
 
 - [nano-vllm](https://github.com/GeeeekExplorer/nano-vllm)
 - [Flash Attention](https://github.com/Dao-AILab/flash-attention)
 
-## 🤝 贡献
+## 📞 Contact
 
-欢迎提交 Issue 和 Pull Request！
+- Author: wangmengdi
+- Email: 790990241@qq.com
+- Project Homepage: https://github.com/your-repo/osc-transformers
 
-## 📄 许可证
+## 📄 License
 
-MIT License
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
