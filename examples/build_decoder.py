@@ -1,56 +1,67 @@
-from osc_transformers import TransformerDecoder
 from pathlib import Path
-from osc_transformers import TransformerDecoderBuilder
 from osc_transformers.normalization import Normalization
 from osc_transformers.registry import Registry
+from osc_transformers import TransformerDecoder, Sequence, SamplingParams
 import torch
 
-# 使用默认注册的组件构建模型
-builder = TransformerDecoderBuilder(num_layers=8)
 
-embedding_config = """
-[embedding]
-@embedding = VocabEmbedding
-num_embeddings = 151936
-embedding_dim = 1024
-"""
-builder.set_embedding(config=embedding_config)
+# 使用配置文件构建模型
+config = Path(__file__).parent / "decoder.cfg"
+model = TransformerDecoder.form_config(config=config, empty_init=True)
 
-attention_config = """
-[attention]
-@attention = PagedAttention
+config = """
+[model]
+@architecture = "TransformerDecoder"
+num_layers = 28
+prenorm = "True"
+
+[model.attention]
+@attention = "PagedAttention"
 in_dim = 1024
 num_heads = 16
-"""
-builder.set_attention(config=attention_config)
+head_dim = 128
+num_query_groups = 8
+rope_base = 1000000
+q_bias = "False"
+k_bias = "False"
+v_bias = "False"
+o_bias = "False"
 
-head_config = """
-[head]
-@head = LMHead
+[model.attention.k_norm]
+@normalization = "RMSNorm"
+in_dim = 128
+eps = 0.000001
+
+[model.attention.q_norm]
+@normalization = "RMSNorm"
+in_dim = 128
+eps = 0.000001
+
+[model.embedding]
+@embedding = "VocabEmbedding"
+num_embeddings = 151936
+embedding_dim = 1024
+
+[model.feedforward]
+@feedforward = "SwiGLU"
+in_dim = 1024
+hidden_dim = 3072
+up_bias = "False"
+gate_bias = "False"
+down_bias = "False"
+
+[model.head]
+@head = "LMHead"
 in_dim = 1024
 out_dim = 151936
-bias = True
-"""
-builder.set_head(config=head_config)
+bias = "False"
 
-norm_config = """
-[normalization]
-@normalization = RMSNorm
+[model.norm]
+@normalization = "RMSNorm"
 in_dim = 1024
-eps = 1e-5
+eps = 0.000001
 """
-builder.set_norm(config=norm_config)
-
-feedforward_config = """
-[feedforward]
-@feedforward = SwiGLU
-in_dim = 1024
-hidden_dim = 1024
-"""
-builder.set_feedforward(config=feedforward_config)
-
-model = builder.build()
-print(model)
+model = TransformerDecoder.form_config(config=config, empty_init=True)
 
 
 # 自定义Normalization组件构建模型
@@ -58,24 +69,86 @@ print(model)
 class LayerNorm(Normalization):
     def __init__(self, in_dim: int, eps: float = 1e-5):
         super().__init__()
-        self.weight = torch.nn.Parameter(torch.ones(in_dim))
-        self.eps = eps
+        self._norm = torch.nn.LayerNorm(in_dim, eps=eps)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return torch.nn.LayerNorm(x, self.weight, self.eps)
+        return self._norm(x)
 
 
-norm_config = """
-[normalization]
-@normalization = LayerNorm
+config = """
+[model]
+@architecture = "TransformerDecoder"
+num_layers = 28
+prenorm = "True"
+
+[model.attention]
+@attention = "PagedAttention"
 in_dim = 1024
-eps = 1e-5
-"""
-builder.set_norm(config=norm_config)
-model = builder.build()
-print(model)
+num_heads = 16
+head_dim = 128
+num_query_groups = 8
+rope_base = 1000000
+q_bias = "False"
+k_bias = "False"
+v_bias = "False"
+o_bias = "False"
 
-# 使用配置文件构建模型
-config = Path(__file__).parent / "decoder.cfg"
-model = TransformerDecoder.form_config(config=config)
-print(model)
+[model.attention.k_norm]
+@normalization = "LayerNorm"
+in_dim = 128
+eps = 0.000001
+
+[model.attention.q_norm]
+@normalization = "LayerNorm"
+in_dim = 128
+eps = 0.000001
+
+[model.embedding]
+@embedding = "VocabEmbedding"
+num_embeddings = 151936
+embedding_dim = 1024
+
+[model.feedforward]
+@feedforward = "SwiGLU"
+in_dim = 1024
+hidden_dim = 3072
+up_bias = "False"
+gate_bias = "False"
+down_bias = "False"
+
+[model.head]
+@head = "LMHead"
+in_dim = 1024
+out_dim = 151936
+bias = "False"
+
+[model.norm]
+@normalization = "LayerNorm"
+in_dim = 1024
+eps = 0.000001
+"""
+
+model = TransformerDecoder.form_config(config=config, empty_init=False)
+
+
+## setup model
+model.setup()
+
+# batch inference
+seqs = [
+    Sequence(
+        token_ids=[1, 2, 3, 4, 5],
+        sampling_params=SamplingParams(temperature=0.5),
+        max_generate_tokens=1024,
+    )
+]
+seqs = model.batch(seqs=seqs)
+
+# stream inference
+seq = Sequence(
+    token_ids=[1, 2, 3, 4, 5],
+    sampling_params=SamplingParams(temperature=0.5),
+    max_generate_tokens=1024,
+)
+for token in model.stream(seq=seq):
+    pass
