@@ -427,98 +427,15 @@ class TransformerDecoder(nn.Module):
             else:
                 config = Config().from_str(config)
         if model_section not in config:
-            logger.fail(f"{model_section} section is required")
+            raise ValueError(f"{model_section} section is required")
         if empty_init:
             with torch.device("meta"):
-                model = Registry.resolve(config=config)[model_section]
+                model: TransformerDecoder = Registry.resolve(config=config)[
+                    model_section
+                ]
         else:
-            model = Registry.resolve(config=config)[model_section]
+            model: TransformerDecoder = Registry.resolve(config=config)[model_section]
         return model.eval()
-
-
-class TransformerDecoderBuilder:
-    def __init__(self, num_layers: int, prenorm: bool = True):
-        super().__init__()
-        self.num_layers = num_layers
-        self.prenorm = prenorm
-        self.embedding = None
-        self.head = None
-        self.norm = None
-        self.attention = None
-        self.feedforward = None
-        self.sampler = None
-
-    def set_embedding(
-        self, config: Config | str, section: str = "embedding"
-    ) -> Embedding:
-        with torch.device("meta"):
-            self.embedding = self.resolve_module(config, section)
-        return self.embedding
-
-    def set_head(self, config: Config | str, section: str = "head") -> Head:
-        with torch.device("meta"):
-            self.head = self.resolve_module(config, section)
-        return self.head
-
-    def set_norm(
-        self, config: Config | str, section: str = "normalization"
-    ) -> Normalization:
-        with torch.device("meta"):
-            self.norm = self.resolve_module(config, section)
-        return self.norm
-
-    def set_attention(
-        self, config: Config | str, section: str = "attention"
-    ) -> CausalSelfAttention:
-        with torch.device("meta"):
-            self.attention = self.resolve_module(config, section)
-        return self.attention
-
-    def set_feedforward(
-        self, config: Config | str, section: str = "feedforward"
-    ) -> FeedForward:
-        with torch.device("meta"):
-            self.feedforward = self.resolve_module(config, section)
-        return self.feedforward
-
-    def set_sampler(self, config: Config | str, section: str = "sampler") -> Sampler:
-        with torch.device("meta"):
-            self.sampler = self.resolve_module(config, section)
-        return self.sampler
-
-    def build(self) -> "TransformerDecoder":
-        if self.embedding is None:
-            logger.fail("embedding is required")
-        if self.head is None:
-            logger.fail("head is required")
-        if self.norm is None:
-            logger.fail("norm is required")
-        if self.attention is None:
-            logger.fail("attention is required")
-        if self.feedforward is None:
-            logger.fail("feedforward is required")
-        if self.sampler is None:
-            logger.fail("sampler is required")
-        model = TransformerDecoder(
-            num_layers=self.num_layers,
-            prenorm=self.prenorm,
-            embedding=self.embedding,
-            attention=self.attention,
-            feedforward=self.feedforward,
-            head=self.head,
-            norm=self.norm,
-            sampler=self.sampler,
-        )
-        return model
-
-    def resolve_module(self, config: Config | str, section: str) -> nn.Module:
-        if isinstance(config, str):
-            config = Config().from_str(config)
-        if section not in config:
-            logger.fail(f"{section} section is required")
-        with torch.device("meta"):
-            model = Registry.resolve(config=config)[section]
-        return model
 
 
 class TransformerDecoderLayer(nn.Module):
