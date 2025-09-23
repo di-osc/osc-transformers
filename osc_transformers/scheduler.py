@@ -20,7 +20,9 @@ class Scheduler:
         self.max_num_seqs = max_num_seqs
         self.max_num_batched_tokens = max_num_batched_tokens
         self.eos = eos
-        self.block_manager = BlockManager(num_kvcache_blocks, kvcache_block_size)
+        self.block_manager = BlockManager(
+            num_blocks=num_kvcache_blocks, block_size=kvcache_block_size
+        )
         self.waiting: deque[Sequence] = deque()
         self.running: deque[Sequence] = deque()
         self.response_queues: dict[int, Queue] = {}
@@ -29,7 +31,13 @@ class Scheduler:
         return not self.waiting and not self.running
 
     def add(self, seq: Sequence, response_queue: Queue = None) -> None:
+        assert (
+            seq.status == SequenceStatus.WAITING
+        ), f"new seq must be waiting, but got {seq.status}"
         self.waiting.append(seq)
+        assert (
+            seq.seq_id not in self.response_queues
+        ), "seq {} already in response_queues".format(seq.seq_id)
         if response_queue is not None:
             self.response_queues[seq.seq_id] = response_queue
         else:
@@ -43,10 +51,16 @@ class Scheduler:
         while self.waiting and num_seqs < self.max_num_seqs:
             seq = self.waiting[0]
             if num_batched_tokens + len(seq) > self.max_num_batched_tokens:
-                logger.warning("batched tokens exceed max_num_batched_tokens")
+                logger.warning(
+                    "batched tokens exceed max_num_batched_tokens for seq {} at prefill".format(
+                        seq.seq_id
+                    )
+                )
                 break
             if not self.block_manager.can_allocate(seq):
-                logger.warning("can not allocate block")
+                logger.warning(
+                    "can not allocate block for seq {} at prefill".format(seq.seq_id)
+                )
                 break
             num_seqs += 1
             self.block_manager.allocate(seq)
@@ -83,16 +97,21 @@ class Scheduler:
 
     def check_finished(self, seqs: List[Sequence]) -> None:
         for seq in seqs:
+            # 检查序列是否已经在 response_queues 中
+            # 如果不在，说明已经被处理过了，跳过
+            if seq.seq_id not in self.response_queues:
+                continue
             response_queue = self.response_queues[seq.seq_id]
             if seq.stream_response:
                 response_queue.put(seq.last_token)
             if (
                 not seq.ignore_eos and seq.last_token == self.eos
-            ) or seq.num_completion_tokens == seq.max_tokens:
+            ) or seq.num_completion_tokens == seq.max_generate_tokens:
                 seq.status = SequenceStatus.FINISHED
                 self.block_manager.deallocate(seq)
                 self.running.remove(seq)
                 del self.response_queues[seq.seq_id]
+                logger.info("seq {} finished".format(seq.seq_id))
                 if not seq.stream_response:
                     response_queue.put(seq)
                 if seq.stream_response:

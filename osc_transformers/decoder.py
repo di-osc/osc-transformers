@@ -1,4 +1,4 @@
-from typing import Mapping, List, Any, Generator
+from typing import Mapping, List, Any, Generator, Tuple
 from copy import deepcopy
 from pathlib import Path
 from queue import Queue
@@ -8,7 +8,7 @@ from threading import Thread
 import torch
 import torch.nn as nn
 from confection import Config
-from wasabi import msg
+from loguru import logger
 
 from .attention import AttentionContext, CausalSelfAttention
 from .registry import Registry
@@ -56,10 +56,7 @@ class TransformerDecoder(nn.Module):
         self.sampler = sampler or SimpleSampler()
 
         self.enable_cuda_graph = False
-        self.scheduler = None
-
-        self.input_queue = Queue()
-        self.response_queues = {}
+        self.scheduler: Scheduler = None
 
     def forward(
         self,
@@ -94,7 +91,7 @@ class TransformerDecoder(nn.Module):
     def compute_logits(self, x: torch.Tensor) -> torch.Tensor:
         return self.head(x)
 
-    def main_loop(self):
+    def _run_loop(self):
         while True:
             try:
                 scheduled_seqs, is_prefill = self.scheduler.schedule()
@@ -111,8 +108,9 @@ class TransformerDecoder(nn.Module):
                 print(e)
                 break
 
-    @torch.inference_mode()
-    def prefill(self, seqs: List[Sequence]) -> List[Sequence]:
+    def prepare_prefill(
+        self, seqs: List[Sequence]
+    ) -> Tuple[torch.Tensor, AttentionContext]:
         input_ids = []
         positions = []
         cu_seqlens_q = [0]
@@ -141,7 +139,7 @@ class TransformerDecoder(nn.Module):
                     end = start + seq.last_block_num_tokens
                 slot_mapping.extend(list(range(start, end)))
         if cu_seqlens_k[-1] > cu_seqlens_q[-1]:  # prefix cache
-            block_tables = self.prepare_block_tables([seq[0] for seq in seqs])
+            block_tables = self.prepare_block_tables(seqs)
         input_ids = torch.tensor(input_ids, dtype=torch.int64, pin_memory=True).cuda(
             non_blocking=True
         )
@@ -167,6 +165,13 @@ class TransformerDecoder(nn.Module):
             slot_mapping=slot_mapping,
             block_tables=block_tables,
         )
+        return input_ids, attn_ctx
+
+    @torch.inference_mode()
+    def prefill(self, seqs: List[Sequence]) -> List[Sequence]:
+        if not seqs:
+            return seqs
+        input_ids, attn_ctx = self.prepare_prefill(seqs)
         logits = self.compute_logits(self.forward(input_ids, attn_ctx))
         temperatures = self.prepare_sample([seq for seq in seqs])
         token_ids = self.sampler(logits, temperatures).tolist()
@@ -174,8 +179,9 @@ class TransformerDecoder(nn.Module):
             seq.append_token(token_id)
         return seqs
 
-    @torch.inference_mode()
-    def decode(self, seqs: List[Sequence]) -> List[Sequence]:
+    def prepare_decode(
+        self, seqs: List[Sequence]
+    ) -> Tuple[torch.Tensor, AttentionContext]:
         input_ids = []
         positions = []
         slot_mapping = []
@@ -209,6 +215,13 @@ class TransformerDecoder(nn.Module):
             context_lens=context_lens,
             block_tables=block_tables,
         )
+        return input_ids, attn_ctx
+
+    @torch.inference_mode()
+    def decode(self, seqs: List[Sequence]) -> List[Sequence]:
+        if not seqs:
+            return seqs
+        input_ids, attn_ctx = self.prepare_decode(seqs)
         if not self.enable_cuda_graph:
             logits = self.compute_logits(self.forward(input_ids, attn_ctx))
         else:
@@ -254,24 +267,26 @@ class TransformerDecoder(nn.Module):
 
     def setup(
         self,
-        max_num_seqs: int,
-        max_model_len: int,
+        max_model_len: int = 4096,
         num_kvcache_blocks: int | None = None,
         max_num_batched_tokens: int | None = None,
         eos: int | None = None,
+        max_num_seqs: int = 512,
         block_size: int = 256,
         cuda_graph: bool = True,
-        start_run: bool = False,
-        dtype: torch.dtype = torch.float16,
+        start_run: bool = True,
+        dtype: torch.dtype = torch.bfloat16,
         device: str = "cuda",
     ) -> None:
         torch.set_default_device(device)
         torch.set_default_dtype(dtype)
         self.to(device=device, dtype=dtype)
         if num_kvcache_blocks is None:
-            num_kvcache_blocks = max_model_len // block_size
+            num_kvcache_blocks = (max_model_len // block_size + 1) * 10
+        logger.info(f"num_kvcache_blocks: {num_kvcache_blocks}")
         if max_num_batched_tokens is None:
-            max_num_batched_tokens = max_model_len * 4
+            max_num_batched_tokens = max_model_len * max_num_seqs
+        logger.info(f"max_num_batched_tokens: {max_num_batched_tokens}")
         self.scheduler = Scheduler(
             max_num_seqs=max_num_seqs,
             max_num_batched_tokens=max_num_batched_tokens,
@@ -285,24 +300,28 @@ class TransformerDecoder(nn.Module):
                 block_size=block_size,
                 max_length=max_model_len,
                 device=device,
+                dtype=dtype,
             )
         if cuda_graph:
+            logger.info("enable cuda graph")
+            self.enable_cuda_graph = True
             self.capture_cudagraph(
                 max_num_seqs=max_num_seqs, max_model_len=max_model_len
             )
         if start_run:
-            self.run_thread = Thread(target=self.main_loop, daemon=True)
+            logger.info("start run loop")
+            self.run_thread = Thread(target=self._run_loop, daemon=True)
             self.run_thread.start()
         else:
             self.run_thread = None
         torch.set_default_dtype(torch.get_default_dtype())
 
-    def batch(self, seqs: List[Sequence], timeout: float = 2):
+    def batch(self, seqs: List[Sequence], timeout: float | None = None):
+        assert self.run_thread is not None, "decoder is not running"
         response_queue = Queue()
         num_seqs = len(seqs)
         results = []
         for seq in seqs:
-            self.response_queues[seq.seq_id] = response_queue
             self.scheduler.add(seq, response_queue)
         while True:
             seq = response_queue.get(timeout=timeout)
@@ -311,9 +330,10 @@ class TransformerDecoder(nn.Module):
                 break
         return results
 
-    def stream(self, seq: Sequence, timeout: float = 2) -> Generator[int, None, None]:
+    def stream(
+        self, seq: Sequence, timeout: float | None = None
+    ) -> Generator[int, None, None]:
         response_queue = Queue()
-        self.response_queues[seq.seq_id] = response_queue
         seq.stream_response = True
         self.scheduler.add(seq, response_queue)
         while True:
@@ -321,6 +341,18 @@ class TransformerDecoder(nn.Module):
             if token_id == seq.end_char:
                 break
             yield token_id
+
+    def generate(self, seqs: List[Sequence]) -> List[Sequence]:
+        for seq in seqs:
+            self.scheduler.add(seq)
+        while not self.scheduler.is_finished():
+            scheduled_seqs, is_prefill = self.scheduler.schedule()
+            if is_prefill:
+                self.prefill(scheduled_seqs)
+            else:
+                self.decode(scheduled_seqs)
+            self.scheduler.check_finished(scheduled_seqs)
+        return seqs
 
     @torch.inference_mode()
     def capture_cudagraph(self, max_num_seqs: int, max_model_len: int):
@@ -409,13 +441,13 @@ class TransformerDecoder(nn.Module):
             else:
                 config = Config().from_str(config)
         if model_section not in config:
-            msg.fail(f"{model_section} section is required")
+            logger.fail(f"{model_section} section is required")
         if empty_init:
             with torch.device("meta"):
                 model = Registry.resolve(config=config)[model_section]
         else:
             model = Registry.resolve(config=config)[model_section]
-        return model
+        return model.eval()
 
 
 class TransformerDecoderBuilder:
@@ -470,17 +502,17 @@ class TransformerDecoderBuilder:
 
     def build(self) -> "TransformerDecoder":
         if self.embedding is None:
-            msg.fail("embedding is required")
+            logger.fail("embedding is required")
         if self.head is None:
-            msg.fail("head is required")
+            logger.fail("head is required")
         if self.norm is None:
-            msg.fail("norm is required")
+            logger.fail("norm is required")
         if self.attention is None:
-            msg.fail("attention is required")
+            logger.fail("attention is required")
         if self.feedforward is None:
-            msg.fail("feedforward is required")
+            logger.fail("feedforward is required")
         if self.sampler is None:
-            msg.fail("sampler is required")
+            logger.fail("sampler is required")
         model = TransformerDecoder(
             num_layers=self.num_layers,
             prenorm=self.prenorm,
@@ -497,7 +529,7 @@ class TransformerDecoderBuilder:
         if isinstance(config, str):
             config = Config().from_str(config)
         if section not in config:
-            msg.fail(f"{section} section is required")
+            logger.fail(f"{section} section is required")
         with torch.device("meta"):
             model = Registry.resolve(config=config)[section]
         return model

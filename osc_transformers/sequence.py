@@ -13,7 +13,6 @@ class SequenceStatus(Enum):
 
 
 class Sequence:
-    block_size = 256
     counter = count()
 
     def __init__(
@@ -22,7 +21,8 @@ class Sequence:
         sampling_params=SamplingParams(),
         end_char: str = "[NONE]",
         stream_response: bool = False,
-        max_tokens: int = 1024,
+        max_generate_tokens: int = 1024,
+        block_size: int = 256,
         ignore_eos: bool = False,
     ):
         self.seq_id = next(Sequence.counter)
@@ -33,8 +33,9 @@ class Sequence:
         self.num_prompt_tokens = len(token_ids)
         self.num_cached_tokens = 0
         self.block_table = []
+        self.block_size = block_size
         self.temperature = sampling_params.temperature
-        self.max_tokens = max_tokens
+        self.max_generate_tokens = max_generate_tokens
         self.ignore_eos = ignore_eos
         self.end_char = end_char
         self.stream_response = stream_response
@@ -76,6 +77,15 @@ class Sequence:
         self.token_ids.append(token_id)
         self.last_token = token_id
         self.num_tokens += 1
+
+    def reset(self) -> None:
+        """reset sequence to initial state for reuse"""
+        self.token_ids = self.token_ids[: self.num_prompt_tokens]
+        self.last_token = self.token_ids[-1]
+        self.num_tokens = self.num_prompt_tokens
+        self.num_cached_tokens = 0
+        self.block_table.clear()
+        self.status = SequenceStatus.WAITING
 
     def __getstate__(self):
         return (
