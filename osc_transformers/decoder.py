@@ -274,13 +274,13 @@ class TransformerDecoder(nn.Module):
         max_num_seqs: int = 512,
         block_size: int = 256,
         cuda_graph: bool = True,
-        start_run: bool = True,
         dtype: torch.dtype = torch.bfloat16,
         device: str = "cuda",
     ) -> None:
         torch.set_default_device(device)
         torch.set_default_dtype(dtype)
         self.to(device=device, dtype=dtype)
+        logger.info("setup transformer decoder")
         if num_kvcache_blocks is None:
             num_kvcache_blocks = (max_model_len // block_size + 1) * 10
         logger.info(f"num_kvcache_blocks: {num_kvcache_blocks}")
@@ -303,17 +303,17 @@ class TransformerDecoder(nn.Module):
                 dtype=dtype,
             )
         if cuda_graph:
-            logger.info("enable cuda graph")
+            logger.info("capture cuda graph")
             self.enable_cuda_graph = True
             self.capture_cudagraph(
-                max_num_seqs=max_num_seqs, max_model_len=max_model_len
+                max_num_seqs=max_num_seqs,
+                max_model_len=max_model_len,
+                block_size=block_size,
             )
-        if start_run:
-            logger.info("start run loop")
-            self.run_thread = Thread(target=self._run_loop, daemon=True)
-            self.run_thread.start()
-        else:
-            self.run_thread = None
+        logger.info("start run loop in background")
+        self.run_thread = Thread(target=self._run_loop, daemon=True)
+        self.run_thread.name = "transfomer_decoder"
+        self.run_thread.start()
         torch.set_default_dtype(torch.get_default_dtype())
 
     def batch(self, seqs: List[Sequence], timeout: float | None = None):
@@ -343,11 +343,9 @@ class TransformerDecoder(nn.Module):
             yield token_id
 
     @torch.inference_mode()
-    def capture_cudagraph(self, max_num_seqs: int, max_model_len: int):
+    def capture_cudagraph(self, max_num_seqs: int, max_model_len: int, block_size: int):
         max_bs = min(max_num_seqs, 512)
-        max_num_blocks = (
-            max_model_len + self.scheduler.block_manager.block_size - 1
-        ) // self.scheduler.block_manager.block_size
+        max_num_blocks = (max_model_len + block_size - 1) // block_size
         input_ids = torch.zeros(max_bs, dtype=torch.int64)
         input_pos = torch.zeros(max_bs, dtype=torch.int64)
         slot_mapping = torch.zeros(max_bs, dtype=torch.int32)
