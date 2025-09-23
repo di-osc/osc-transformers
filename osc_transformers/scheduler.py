@@ -106,7 +106,7 @@ class Scheduler:
                 response_queue.put(seq.last_token)
             if (
                 not seq.ignore_eos and seq.last_token == self.eos
-            ) or seq.num_completion_tokens == seq.max_generate_tokens:
+            ) or seq.num_completion_tokens == seq.sampling_params.max_generate_tokens:
                 seq.status = SequenceStatus.FINISHED
                 self.block_manager.deallocate(seq)
                 self.running.remove(seq)

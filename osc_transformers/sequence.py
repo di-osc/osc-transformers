@@ -21,7 +21,6 @@ class Sequence:
         sampling_params=SamplingParams(),
         end_char: str = "[NONE]",
         stream_response: bool = False,
-        max_generate_tokens: int = 1024,
         block_size: int = 256,
         ignore_eos: bool = False,
     ):
@@ -35,10 +34,10 @@ class Sequence:
         self.block_table = []
         self.block_size = block_size
         self.temperature = sampling_params.temperature
-        self.max_generate_tokens = max_generate_tokens
         self.ignore_eos = ignore_eos
         self.end_char = end_char
         self.stream_response = stream_response
+        self.sampling_params = sampling_params
 
     @property
     def is_finished(self):

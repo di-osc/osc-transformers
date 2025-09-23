@@ -4,7 +4,7 @@ import time
 from jsonargparse import auto_cli
 from loguru import logger
 
-from osc_transformers import TransformerDecoder, Sequence
+from osc_transformers import TransformerDecoder, Sequence, SamplingParams
 
 
 def bench(
@@ -22,7 +22,7 @@ def bench(
         max_input_len (int, optional): max input length. Defaults to 1024.
         max_output_len (int, optional): max output length. Defaults to 1024.
     """
-    model = TransformerDecoder.form_config(config=cfg)
+    model = TransformerDecoder.from_config(config=cfg)
     max_model_len = max_input_len + max_output_len
     model.setup(
         max_model_len=max_model_len,
@@ -37,7 +37,7 @@ def bench(
         seqs = [
             Sequence(
                 token_ids=prompt_token_ids[i],
-                max_generate_tokens=max_output_len,
+                sampling_params=SamplingParams(max_generate_tokens=max_output_len),
                 ignore_eos=True,
             )
             for i in range(num_seqs)
@@ -53,7 +53,7 @@ def bench(
     start_time = time.perf_counter()
     seqs = model.batch(seqs=seqs)
     end_time = time.perf_counter()
-    total_tokens = sum(seq.max_generate_tokens for seq in seqs)
+    total_tokens = sum(seq.num_completion_tokens for seq in seqs)
     throughput = total_tokens / (end_time - start_time)
     logger.success(f"🎯 Benchmark complete! Throughput: {throughput:.2f} tokens/s")
 
