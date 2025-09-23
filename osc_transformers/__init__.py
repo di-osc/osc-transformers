@@ -5,8 +5,8 @@ from .normalization import *
 from .head import *
 from .embedding import *
 from .sampler import *
-from .decoder import TransformerDecoder, TransformerDecoderBuilder
+from .decoder import TransformerDecoder
 from .sequence import Sequence
 from .registry import Registry
 
-__all__ = ["TransformerDecoder", "Registry", "TransformerDecoderBuilder", "Sequence"]
+__all__ = ["TransformerDecoder", "Registry", "Sequence"]
