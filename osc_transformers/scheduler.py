@@ -111,7 +111,6 @@ class Scheduler:
                 self.block_manager.deallocate(seq)
                 self.running.remove(seq)
                 del self.response_queues[seq.seq_id]
-                logger.info("seq {} finished".format(seq.seq_id))
                 if not seq.stream_response:
                     response_queue.put(seq)
                 if seq.stream_response:
