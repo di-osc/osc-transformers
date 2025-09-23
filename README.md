@@ -17,7 +17,6 @@
 - 🔧 **配置驱动**: 通过简单配置文件构建 Transformer 模型
 - 🧩 **模块化设计**: 支持自定义注册各类组件
 - ⚡ **高性能**: 支持 CUDA Graph 和 Paged Attention
-- 🎯 **易于使用**: 提供 Builder 模式和配置文件两种方式
 
 ## 🛠️ 支持组件
 
@@ -31,40 +30,95 @@
 
 ## 📦 安装
 
+- 安装(最新版本pytorch)[https://pytorch.org/]
+- 安装(flash-attn)[https://github.com/Dao-AILab/flash-attention]：建议下载官方构建好的whl包，避免编译问题
+- 安装osc-transformers
 ```bash
 pip install osc-transformers
 ```
 
-环境要求：Python >= 3.10, PyTorch >= 2.8.0
 
 ## 🚀 快速开始
 
-### 使用配置文件
 
-创建 `model.cfg`:
+创建 `model.cfg`(Qwen3-0.6B):
 ```toml
 [model]
 @architecture = "TransformerDecoder"
-num_layers = 12
-max_length = 2048
+num_layers = 28
+prenorm = "True"
 
 [model.attention]
 @attention = "PagedAttention"
-in_dim = 768
-num_heads = 12
+in_dim = 1024
+num_heads = 16
+head_dim = 128
+num_query_groups = 8
+rope_base = 1000000
+q_bias = "False"
+k_bias = "False"
+v_bias = "False"
+o_bias = "False"
+
+[model.attention.k_norm]
+@normalization = "RMSNorm"
+in_dim = 128
+eps = 0.000001
+
+[model.attention.q_norm]
+@normalization = "RMSNorm"
+in_dim = 128
+eps = 0.000001
 
 [model.embedding]
 @embedding = "VocabEmbedding"
-num_embeddings = 30000
-embedding_dim = 768
+num_embeddings = 151936
+embedding_dim = 1024
+
+[model.feedforward]
+@feedforward = "SwiGLU"
+in_dim = 1024
+hidden_dim = 3072
+up_bias = "False"
+gate_bias = "False"
+down_bias = "False"
+
+[model.head]
+@head = "LMHead"
+in_dim = 1024
+out_dim = 151936
+bias = "False"
+
+[model.norm]
+@normalization = "RMSNorm"
+in_dim = 1024
+eps = 0.000001
 ```
 
-加载模型：
+构建模型：
 ```python
-from osc_transformers import TransformerDecoder
+from osc_transformers import TransformerDecoder, Sequence, SamplingParams
 model = TransformerDecoder.from_config("model.cfg")
+model.setup(gpu_memory_utilization=0.9, max_model_len=40960, device="cuda:0")
+
+# 批量推理
+seqs = [Sequence(token_ids=[1,2,3,4,5,6,7,8,9,10], sampling_params=SamplingParams(temperature=0.5, max_generate_tokens=1024))]
+seqs = model.batch(seqs)
+
+# 流式推理
+seq = Sequence(token_ids=[1,2,3,4,5,6,7,8,9,10], sampling_params=SamplingParams(temperature=0.5, max_generate_tokens=1024))
+for token in model.stream(seq):
+    pass
+
 ```
 
+## 📚 推理性能
+```bash
+osc-transformers bench examples/decoder.cfg --num_seqs 64 --max_input_len 1024 --max_output_len 1024 --gpu_memory_utilization 0.9
+```
+| 设备 | 吞吐量 |
+|---------|---------|
+| 4090 | 5200 |
 
 ## 🤝 贡献
 
