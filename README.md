@@ -120,7 +120,7 @@ osc-transformers bench examples/decoder.cfg --num_seqs 64 --max_input_len 1024 -
 ```
 | Device | Throughput(tokens/s) |
 |---------|---------|
-| 4090 | 5200 |
+| 4090 | 5400 |
 
 ## 📚 Acknowledgments
 
