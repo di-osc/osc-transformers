@@ -31,13 +31,13 @@ class Scheduler:
         return not self.waiting and not self.running
 
     def add(self, seq: Sequence, response_queue: Queue = None) -> None:
-        assert seq.status == SequenceStatus.WAITING, (
-            f"new seq must be waiting, but got {seq.status}"
-        )
+        assert (
+            seq.status == SequenceStatus.WAITING
+        ), f"new seq must be waiting, but got {seq.status}"
         self.waiting.append(seq)
-        assert seq.seq_id not in self.response_queues, (
-            "seq {} already in response_queues".format(seq.seq_id)
-        )
+        assert (
+            seq.seq_id not in self.response_queues
+        ), "seq {} already in response_queues".format(seq.seq_id)
         if response_queue is not None:
             self.response_queues[seq.seq_id] = response_queue
         else:
@@ -111,7 +111,32 @@ class Scheduler:
                 self.block_manager.deallocate(seq)
                 self.running.remove(seq)
                 del self.response_queues[seq.seq_id]
-                if not seq.stream_response:
-                    response_queue.put(seq)
                 if seq.stream_response:
                     response_queue.put(seq.end_char)
+                else:
+                    response_queue.put(seq)
+
+    def set_all_failed(self, error_message: str) -> None:
+        while self.waiting:
+            self.set_failed(self.waiting.popleft(), error_message)
+        while self.running:
+            self.set_failed(self.running.popleft(), error_message)
+
+    def set_failed(self, seq: Sequence, error_message: str) -> None:
+        assert seq.status in [
+            SequenceStatus.WAITING,
+            SequenceStatus.RUNNING,
+        ], f"seq {seq.seq_id} is not in waiting or running"
+        if seq.status == SequenceStatus.WAITING:
+            self.waiting.remove(seq)
+        elif seq.status == SequenceStatus.RUNNING:
+            self.running.remove(seq)
+        seq.status = SequenceStatus.FAILED
+        seq.error_message = error_message
+        if seq.seq_id in self.response_queues:
+            response_queue = self.response_queues[seq.seq_id]
+            if seq.stream_response:
+                response_queue.put(seq.end_char)
+            else:
+                response_queue.put(seq)
+            del self.response_queues[seq.seq_id]
