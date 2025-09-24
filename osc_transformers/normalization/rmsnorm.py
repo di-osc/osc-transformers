@@ -6,7 +6,7 @@ from ..registry import Registry
 from ..ops.rms_norm import LigerRMSNormFunction
 
 
-@Registry.normalization.register("RMSNorm.compile")
+@Registry.normalization.register("RMSNorm.torch")
 class TorchRMSNorm(Normalization):
     def __init__(self, in_dim: int, eps: float = 1e-5) -> None:
         super().__init__()
