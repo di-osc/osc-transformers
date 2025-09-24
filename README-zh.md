@@ -30,8 +30,8 @@
 
 ## 📦 安装
 
-- 安装(最新版本pytorch)[https://pytorch.org/]
-- 安装(flash-attn)[https://github.com/Dao-AILab/flash-attention]：建议下载官方构建好的whl包，避免编译问题
+- 安装[最新版本pytorch](https://pytorch.org/)
+- 安装[flash-attn](https://github.com/Dao-AILab/flash-attention): 建议下载官方构建好的whl包，避免编译问题
 - 安装osc-transformers
 ```bash
 pip install osc-transformers
