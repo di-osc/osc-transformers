@@ -115,7 +115,7 @@ for token in model.stream(seq):
 
 ## 📚 推理性能
 ```bash
-osc-transformers bench examples/decoder.cfg --num_seqs 64 --max_input_len 1024 --max_output_len 1024 --gpu_memory_utilization 0.9
+osc-transformers bench examples/configs/qwen3-0_6B.cfg --num_seqs 64 --max_input_len 1024 --max_output_len 1024 --gpu_memory_utilization 0.9
 ```
 | 架构 | 模型 |设备 | 吞吐量(tokens/s) |
 |---------|---------|---------|---------|
