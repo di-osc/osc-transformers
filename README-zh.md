@@ -117,9 +117,10 @@ for token in model.stream(seq):
 ```bash
 osc-transformers bench examples/decoder.cfg --num_seqs 64 --max_input_len 1024 --max_output_len 1024 --gpu_memory_utilization 0.9
 ```
-| 设备 | 吞吐量(tokens/s) |
-|---------|---------|
-| 4090 | 5400 |
+| 架构 | 模型 |设备 | 吞吐量(tokens/s) |
+|---------|---------|---------|---------|
+| TransformerDecoder | Qwen3-0.6B | 4090 | 5400 |
+| TransformerDecoder | Qwen3-0.6B | 3090 | 4000 |
 
 ## 📚 致谢
 
