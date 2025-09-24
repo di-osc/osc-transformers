@@ -1,5 +1,6 @@
 from random import randint
 import time
+from pathlib import Path
 
 from jsonargparse import auto_cli
 from loguru import logger
@@ -22,6 +23,8 @@ def bench(
         max_input_len (int, optional): max input length. Defaults to 1024.
         max_output_len (int, optional): max output length. Defaults to 1024.
     """
+    if not Path(cfg).exists():
+        raise FileNotFoundError(f"Config file {cfg} not found")
     model = TransformerDecoder.from_config(config=cfg)
     max_model_len = max_input_len + max_output_len
     model.setup(
