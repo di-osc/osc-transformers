@@ -6,8 +6,8 @@ import torch
 
 
 # 使用配置文件构建模型
-config = Path(__file__).parent / "decoder.cfg"
-model = TransformerDecoder.form_config(config=config, empty_init=True)
+config = Path(__file__).parent / "configs" / "qwen3-0_6B.cfg"
+model = TransformerDecoder.from_config(config=config, empty_init=True)
 
 config = """
 [model]
@@ -61,7 +61,7 @@ bias = "False"
 in_dim = 1024
 eps = 0.000001
 """
-model = TransformerDecoder.form_config(config=config, empty_init=True)
+model = TransformerDecoder.from_config(config=config, empty_init=True)
 
 
 # 自定义Normalization组件构建模型
@@ -128,18 +128,17 @@ in_dim = 1024
 eps = 0.000001
 """
 
-model = TransformerDecoder.form_config(config=config, empty_init=False)
+model = TransformerDecoder.from_config(config=config, empty_init=False)
 
 
 ## setup model
-model.setup()
+model.setup(model_name="qwen3-0_6B")
 
 # batch inference
 seqs = [
     Sequence(
         token_ids=[1, 2, 3, 4, 5],
-        sampling_params=SamplingParams(temperature=0.5),
-        max_generate_tokens=1024,
+        sampling_params=SamplingParams(temperature=0.5, max_generate_tokens=1024),
     )
 ]
 seqs = model.batch(seqs=seqs)
@@ -147,8 +146,7 @@ seqs = model.batch(seqs=seqs)
 # stream inference
 seq = Sequence(
     token_ids=[1, 2, 3, 4, 5],
-    sampling_params=SamplingParams(temperature=0.5),
-    max_generate_tokens=1024,
+    sampling_params=SamplingParams(temperature=0.5, max_generate_tokens=1024),
 )
 for token in model.stream(seq=seq):
     pass
