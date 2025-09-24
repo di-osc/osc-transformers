@@ -59,6 +59,7 @@ class TransformerDecoder(nn.Module):
         self.scheduler: Scheduler = None
 
         self.stop_event = Event()
+        self.name = "TransformerDecoder"
 
     def forward(
         self,
@@ -280,7 +281,9 @@ class TransformerDecoder(nn.Module):
         cuda_graph: bool = True,
         dtype: torch.dtype = torch.bfloat16,
         device: str = "cuda",
+        model_name: str = "TransformerDecoder",
     ) -> None:
+        self.name = model_name
         torch.set_default_device(device)
         torch.set_default_dtype(dtype)
         self.to(device=device, dtype=dtype)
@@ -288,8 +291,8 @@ class TransformerDecoder(nn.Module):
         torch.cuda.synchronize()
         model_memory = torch.cuda.memory_allocated()
         logger.info(
-            "🏗️  Initializing TransformerDecoder architecture with device: {} and dtype: {}".format(
-                device, dtype
+            "🏗️  Initializing {} with device: {} and dtype: {}".format(
+                self.name, device, dtype
             )
         )
         free, total = torch.cuda.mem_get_info()
@@ -310,7 +313,8 @@ class TransformerDecoder(nn.Module):
             int(total * gpu_memory_utilization - used - peak + current) // block_bytes
         )
         if num_kvcache_blocks <= 0:
-            raise ValueError("Not enough GPU memory to allocate KV cache")
+            logger.error("❌ Not enough GPU memory to allocate KV cache")
+            exit(1)
         max_num_batched_tokens = num_kvcache_blocks * block_size
         kv_cache_memory = num_kvcache_blocks * block_bytes
 
@@ -355,7 +359,7 @@ class TransformerDecoder(nn.Module):
             )
         logger.info("🚀 Starting inference loop in background thread")
         self.run_thread = Thread(target=self._run_loop, daemon=True)
-        self.run_thread.name = "transfomer_decoder"
+        self.run_thread.name = self.name
         self.run_thread.start()
 
     def batch(self, seqs: List[Sequence], timeout: float | None = None):
