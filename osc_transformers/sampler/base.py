@@ -7,6 +7,9 @@ from dataclasses import dataclass
 class SamplingParams:
     temperature: float = 1.0
     max_generate_tokens: int = 2048
+    top_p: float = 0.75
+    top_k: int = 100
+    repetition_penalty: float = 1.0
 
 
 class Sampler(nn.Module):

@@ -10,6 +10,7 @@ class SequenceStatus(Enum):
     WAITING = auto()
     RUNNING = auto()
     FINISHED = auto()
+    FAILED = auto()
 
 
 class Sequence:
@@ -38,6 +39,7 @@ class Sequence:
         self.end_char = end_char
         self.stream_response = stream_response
         self.sampling_params = sampling_params
+        self.error_message = None
 
     @property
     def is_finished(self):
@@ -85,6 +87,7 @@ class Sequence:
         self.num_cached_tokens = 0
         self.block_table.clear()
         self.status = SequenceStatus.WAITING
+        self.error_message = None
 
     def __getstate__(self):
         return (
@@ -93,6 +96,7 @@ class Sequence:
             self.num_cached_tokens,
             self.block_table,
             self.token_ids if self.num_completion_tokens == 0 else self.last_token,
+            self.error_message,
         )
 
     def __setstate__(self, state):
@@ -101,6 +105,7 @@ class Sequence:
             self.num_prompt_tokens,
             self.num_cached_tokens,
             self.block_table,
+            self.error_message,
         ) = state[:-1]
         if self.num_completion_tokens == 0:
             self.token_ids = state[-1]
