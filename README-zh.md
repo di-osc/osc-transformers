@@ -127,6 +127,7 @@ osc-transformers bench examples/decoder.cfg --num_seqs 64 --max_input_len 1024 -
 
 - [nano-vllm](https://github.com/GeeeekExplorer/nano-vllm)
 - [Flash Attention](https://github.com/Dao-AILab/flash-attention)
+- [Liger-Kernel](https://github.com/linkedin/Liger-Kernel)
 
 ## 🤝 贡献
 

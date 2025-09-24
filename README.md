@@ -128,6 +128,7 @@ The core code of this project mainly comes from the following projects:
 
 - [nano-vllm](https://github.com/GeeeekExplorer/nano-vllm)
 - [Flash Attention](https://github.com/Dao-AILab/flash-attention)
+- [Liger-Kernel](https://github.com/linkedin/Liger-Kernel)
 
 ## 🤝 Contributing
 
