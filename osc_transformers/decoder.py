@@ -284,6 +284,9 @@ class TransformerDecoder(nn.Module):
         torch.set_default_device(device)
         torch.set_default_dtype(dtype)
         self.to(device=device, dtype=dtype)
+        # Record model memory after moving to GPU
+        torch.cuda.synchronize()
+        model_memory = torch.cuda.memory_allocated()
         logger.info(
             "🏗️  Initializing TransformerDecoder architecture with device: {} and dtype: {}".format(
                 device, dtype
@@ -319,10 +322,12 @@ class TransformerDecoder(nn.Module):
                 bytes_val /= 1024.0
             return f"{bytes_val:.1f} TB"
 
+        total_memory_usage = model_memory + kv_cache_memory
         logger.info(
-            f"💾 KV Cache configured: {num_kvcache_blocks} blocks "
-            f"({format_bytes(kv_cache_memory)} for cache, "
-            f"{gpu_memory_utilization:.1%} of {format_bytes(total)} GPU memory), "
+            f"💾 Total GPU memory: {format_bytes(total_memory_usage)} "
+            f"({gpu_memory_utilization:.1%} of {format_bytes(total)}), "
+            f"Model: {format_bytes(model_memory)}, KV Cache: {format_bytes(kv_cache_memory)} "
+            f"({num_kvcache_blocks} blocks), "
             f"max {max_num_batched_tokens} batched tokens ({block_size} tokens/block)"
         )
         self.scheduler = Scheduler(
