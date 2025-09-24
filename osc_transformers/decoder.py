@@ -60,6 +60,7 @@ class TransformerDecoder(nn.Module):
 
         self.stop_event = Event()
         self.name = "TransformerDecoder"
+        self.run_thread = None
 
     def forward(
         self,
@@ -112,7 +113,9 @@ class TransformerDecoder(nn.Module):
                 self.stop_event.set()
                 self.scheduler.set_all_failed(str(e))
                 break
-        logger.info("🛑 inference loop stopped")
+        logger.info(
+            "🛑 inference loop stopped, you can call setup() again to start a new loop"
+        )
 
     def prepare_prefill(
         self, seqs: List[Sequence]
@@ -283,6 +286,24 @@ class TransformerDecoder(nn.Module):
         device: str = "cuda",
         model_name: str = "TransformerDecoder",
     ) -> None:
+        if self.run_thread is not None:
+            logger.info(
+                "🔄 Re-initializing {} with device: {} and dtype: {}".format(
+                    self.name, device, dtype
+                )
+            )
+            self.stop_event.set()
+            self.run_thread.join()
+            self.run_thread = None
+            self.stop_event = Event()
+            self.clear_cache()
+            torch.cuda.reset_peak_memory_stats(device=device)
+        else:
+            logger.info(
+                "🏗️ Initializing {} with device: {} and dtype: {}".format(
+                    self.name, device, dtype
+                )
+            )
         self.name = model_name
         torch.set_default_device(device)
         torch.set_default_dtype(dtype)
@@ -290,11 +311,6 @@ class TransformerDecoder(nn.Module):
         # Record model memory after moving to GPU
         torch.cuda.synchronize()
         model_memory = torch.cuda.memory_allocated()
-        logger.info(
-            "🏗️  Initializing {} with device: {} and dtype: {}".format(
-                self.name, device, dtype
-            )
-        )
         free, total = torch.cuda.mem_get_info()
         used = total - free
         peak = torch.cuda.memory_stats()["allocated_bytes.all.peak"]
@@ -314,17 +330,9 @@ class TransformerDecoder(nn.Module):
         )
         if num_kvcache_blocks <= 0:
             logger.error("❌ Not enough GPU memory to allocate KV cache")
-            exit(1)
+            return
         max_num_batched_tokens = num_kvcache_blocks * block_size
         kv_cache_memory = num_kvcache_blocks * block_bytes
-
-        def format_bytes(bytes_val):
-            """Format bytes to human readable format"""
-            for unit in ["B", "KB", "MB", "GB"]:
-                if bytes_val < 1024.0:
-                    return f"{bytes_val:.1f} {unit}"
-                bytes_val /= 1024.0
-            return f"{bytes_val:.1f} TB"
 
         total_memory_usage = model_memory + kv_cache_memory
         logger.info(
@@ -361,6 +369,18 @@ class TransformerDecoder(nn.Module):
         self.run_thread = Thread(target=self._run_loop, daemon=True)
         self.run_thread.name = self.name
         self.run_thread.start()
+
+    def clear_cache(self):
+        for layer in self.layers:
+            layer.attention.clear_cache()
+        # Clear CUDA graphs if they exist
+        if hasattr(self, "graphs"):
+            self.graphs = {}
+        if hasattr(self, "graph_pool"):
+            self.graph_pool = None
+        if hasattr(self, "graph_vars"):
+            self.graph_vars = {}
+        torch.cuda.empty_cache()
 
     def batch(self, seqs: List[Sequence], timeout: float | None = None):
         assert (
@@ -530,3 +550,12 @@ class TransformerDecoderLayer(nn.Module):
             )
             x = self.feedforward_norm(self.feedforward(x) + x)
         return x
+
+
+def format_bytes(bytes_val: int) -> str:
+    """Format bytes to human readable format"""
+    for unit in ["B", "KB", "MB", "GB"]:
+        if bytes_val < 1024.0:
+            return f"{bytes_val:.1f} {unit}"
+        bytes_val /= 1024.0
+    return f"{bytes_val:.1f} TB"

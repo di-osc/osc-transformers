@@ -128,9 +128,11 @@ class Scheduler:
             SequenceStatus.RUNNING,
         ], f"seq {seq.seq_id} is not in waiting or running"
         if seq.status == SequenceStatus.WAITING:
-            self.waiting.remove(seq)
+            if seq in self.waiting:
+                self.waiting.remove(seq)
         elif seq.status == SequenceStatus.RUNNING:
-            self.running.remove(seq)
+            if seq in self.running:
+                self.running.remove(seq)
         seq.status = SequenceStatus.FAILED
         seq.error_message = error_message
         if seq.seq_id in self.response_queues:
