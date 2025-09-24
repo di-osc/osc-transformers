@@ -3,7 +3,7 @@ from copy import deepcopy
 from pathlib import Path
 from queue import Queue
 import time
-from threading import Thread
+from threading import Thread, Event
 
 import torch
 import torch.nn as nn
@@ -58,6 +58,8 @@ class TransformerDecoder(nn.Module):
         self.enable_cuda_graph = False
         self.scheduler: Scheduler = None
 
+        self.stop_event = Event()
+
     def forward(
         self,
         input_ids: torch.Tensor,
@@ -92,7 +94,7 @@ class TransformerDecoder(nn.Module):
         return self.head(x)
 
     def _run_loop(self):
-        while True:
+        while not self.stop_event.is_set():
             try:
                 scheduled_seqs, is_prefill = self.scheduler.schedule()
                 if len(scheduled_seqs) == 0:
@@ -106,7 +108,10 @@ class TransformerDecoder(nn.Module):
                     self.scheduler.check_finished(scheduled_seqs)
             except Exception as e:
                 logger.error(e)
+                self.stop_event.set()
+                self.scheduler.set_all_failed(str(e))
                 break
+        logger.info("🛑 inference loop stopped")
 
     def prepare_prefill(
         self, seqs: List[Sequence]
@@ -279,7 +284,11 @@ class TransformerDecoder(nn.Module):
         torch.set_default_device(device)
         torch.set_default_dtype(dtype)
         self.to(device=device, dtype=dtype)
-        logger.info("🏗️  Initializing TransformerDecoder architecture with device: {} and dtype: {}".format(device, dtype))
+        logger.info(
+            "🏗️  Initializing TransformerDecoder architecture with device: {} and dtype: {}".format(
+                device, dtype
+            )
+        )
         free, total = torch.cuda.mem_get_info()
         used = total - free
         peak = torch.cuda.memory_stats()["allocated_bytes.all.peak"]
@@ -351,7 +360,7 @@ class TransformerDecoder(nn.Module):
         results = []
         for seq in seqs:
             self.scheduler.add(seq, response_queue)
-        while True:
+        while not self.stop_event.is_set():
             seq = response_queue.get(timeout=timeout)
             results.append(seq)
             if len(results) == num_seqs:
@@ -364,7 +373,7 @@ class TransformerDecoder(nn.Module):
         response_queue = Queue()
         seq.stream_response = True
         self.scheduler.add(seq, response_queue)
-        while True:
+        while not self.stop_event.is_set():
             token_id = response_queue.get(timeout=timeout)
             if token_id == seq.end_char:
                 break
