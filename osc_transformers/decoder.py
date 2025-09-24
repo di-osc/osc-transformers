@@ -363,7 +363,9 @@ class TransformerDecoder(nn.Module):
         self.run_thread.start()
 
     def batch(self, seqs: List[Sequence], timeout: float | None = None):
-        assert self.run_thread is not None, "decoder is not running"
+        assert (
+            self.run_thread is not None
+        ), "{} is not running, please call setup() first".format(self.name)
         response_queue = Queue()
         num_seqs = len(seqs)
         results = []
@@ -379,6 +381,9 @@ class TransformerDecoder(nn.Module):
     def stream(
         self, seq: Sequence, timeout: float | None = None
     ) -> Generator[int, None, None]:
+        assert (
+            self.run_thread is not None
+        ), "{} is not running, please call setup() first".format(self.name)
         response_queue = Queue()
         seq.stream_response = True
         self.scheduler.add(seq, response_queue)
