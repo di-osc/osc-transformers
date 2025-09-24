@@ -1,6 +1,5 @@
 from typing import Optional, Tuple
 import math
-from dataclasses import dataclass
 from functools import lru_cache
 
 import torch.nn as nn
@@ -9,34 +8,8 @@ import triton
 import triton.language as tl
 from flash_attn import flash_attn_varlen_func, flash_attn_with_kvcache
 
-from .base import CausalSelfAttention
+from .base import CausalSelfAttention, AttentionContext
 from ..registry import Registry
-
-
-@dataclass
-class AttentionContext:
-    is_prefill: bool = False
-    input_pos: torch.Tensor | None = None
-    # varlen attention
-    cu_seqlens_q: torch.Tensor | None = None
-    cu_seqlens_k: torch.Tensor | None = None
-    max_seqlen_q: int = 0
-    max_seqlen_k: int = 0
-    # paged attention
-    slot_mapping: torch.Tensor | None = None
-    context_lens: torch.Tensor | None = None
-    block_tables: torch.Tensor | None = None
-
-    def reset_run_info(self):
-        self.input_pos = None
-        self.is_prefill = False
-        self.cu_seqlens_k = None
-        self.cu_seqlens_q = None
-        self.max_seqlen_k = 0
-        self.max_seqlen_q = 0
-        self.slot_mapping = None
-        self.context_lens = None
-        self.block_tables = None
 
 
 @Registry.attention.register("PagedAttention")
@@ -245,6 +218,12 @@ class PagedAttention(CausalSelfAttention):
             base=self.rope_base,
             device=device,
         )
+
+    def clear_cache(self):
+        self.k_cache = torch.tensor([])
+        self.v_cache = torch.tensor([])
+        self.rope_cos_cache = torch.tensor([])
+        self.rope_sin_cache = torch.tensor([])
 
     @property
     def num_kv_heads(self) -> int:
