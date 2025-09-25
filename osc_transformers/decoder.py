@@ -289,7 +289,7 @@ class TransformerDecoder(nn.Module):
         if self.run_thread is not None:
             logger.info(
                 "🔄 Re-initializing {} with device: {} and dtype: {}".format(
-                    self.name, device, dtype
+                    model_name, device, dtype
                 )
             )
             self.stop_event.set()
@@ -301,7 +301,7 @@ class TransformerDecoder(nn.Module):
         else:
             logger.info(
                 "🏗️ Initializing {} with device: {} and dtype: {}".format(
-                    self.name, device, dtype
+                    model_name, device, dtype
                 )
             )
         self.name = model_name
@@ -367,7 +367,7 @@ class TransformerDecoder(nn.Module):
             )
         logger.info("🚀 Starting inference loop in background thread")
         self.run_thread = Thread(target=self._run_loop, daemon=True)
-        self.run_thread.name = self.name
+        self.run_thread.name = model_name
         self.run_thread.start()
 
     def clear_cache(self):
