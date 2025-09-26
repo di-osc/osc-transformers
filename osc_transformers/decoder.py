@@ -372,6 +372,8 @@ class TransformerDecoder(nn.Module):
         self.run_thread = Thread(target=self._run_loop, daemon=True)
         self.run_thread.name = model_name
         self.run_thread.start()
+        torch.set_default_device("cpu")
+        torch.set_default_dtype(torch.float32)
 
     def clear_cache(self):
         for layer in self.layers:
