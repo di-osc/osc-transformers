@@ -13,13 +13,18 @@ class Scheduler:
         self,
         max_num_seqs: int,
         max_num_batched_tokens: int,
-        eos: int,
+        eos: int | List[int] | None,
         num_kvcache_blocks: int,
         kvcache_block_size: int,
     ):
         self.max_num_seqs = max_num_seqs
         self.max_num_batched_tokens = max_num_batched_tokens
-        self.eos = eos
+        if eos is None:
+            self.eos = []
+        elif isinstance(eos, int):
+            self.eos = [eos]
+        else:
+            self.eos = eos
         self.block_manager = BlockManager(
             num_blocks=num_kvcache_blocks, block_size=kvcache_block_size
         )
@@ -105,7 +110,7 @@ class Scheduler:
             if seq.stream_response:
                 response_queue.put(seq.last_token)
             if (
-                not seq.ignore_eos and seq.last_token == self.eos
+                not seq.ignore_eos and seq.last_token in self.eos
             ) or seq.num_completion_tokens == seq.sampling_params.max_generate_tokens:
                 seq.status = SequenceStatus.FINISHED
                 self.block_manager.deallocate(seq)

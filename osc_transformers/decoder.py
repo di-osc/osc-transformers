@@ -278,7 +278,7 @@ class TransformerDecoder(nn.Module):
         self,
         max_model_len: int = 4096,
         gpu_memory_utilization: float = 0.5,
-        eos: int | None = None,
+        eos: int | List[int] | None = None,
         max_num_seqs: int = 512,
         block_size: int = 256,
         cuda_graph: bool = True,
