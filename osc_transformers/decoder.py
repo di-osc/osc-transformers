@@ -62,6 +62,8 @@ class TransformerDecoder(nn.Module):
         self.name = "TransformerDecoder"
         self.run_thread = None
 
+        self.dtype = None
+
     def forward(
         self,
         input_ids: torch.Tensor,
@@ -286,6 +288,7 @@ class TransformerDecoder(nn.Module):
         device: str = "cuda",
         model_name: str = "TransformerDecoder",
     ) -> None:
+        self.dtype = dtype
         if self.run_thread is not None:
             logger.info(
                 "🔄 Re-initializing {} with device: {} and dtype: {}".format(
