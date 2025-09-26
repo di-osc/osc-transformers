@@ -50,15 +50,29 @@ def bench(
     # warmup
     logger.info("🔥 Warming up the model")
     _ = model.batch(create_seqs(1))
-    # bench
-    logger.info("📊 Starting performance benchmark")
+    # bench 1 seq first token
+    logger.info("📊 Starting benchmark for single sequence")
+    seq = create_seqs(num_seqs=1)[0]
+    start_time = time.perf_counter()
+    first_response_time = None
+    num_tokens = 0
+    for _ in model.stream(seq=seq):
+        if first_response_time is None:
+            first_response_time = time.perf_counter() - start_time
+        num_tokens += 1
+    total_time = time.perf_counter() - start_time
+    logger.success(
+        f"🎯 Prompt tokens: {len(seq.prompt_token_ids)}, First token latency: {first_response_time:.3f}s, Tokens per second: {num_tokens / total_time:.1f} tokens/s"
+    )
+    # bench throughput
+    logger.info("📊 Starting benchmark for batch inference")
     seqs = create_seqs(num_seqs=num_seqs)
     start_time = time.perf_counter()
     seqs = model.batch(seqs=seqs)
     end_time = time.perf_counter()
     total_tokens = sum(seq.num_completion_tokens for seq in seqs)
     throughput = total_tokens / (end_time - start_time)
-    logger.success(f"🎯 Benchmark complete! Throughput: {throughput:.2f} tokens/s")
+    logger.success(f"🎯 Throughput: {throughput:.2f} tokens/s")
 
 
 def run_cli():
