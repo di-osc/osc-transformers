@@ -39,6 +39,31 @@ default = true
 [project.scripts]
 osc-transformers = "osc_transformers.__main__:run_cli"
 
+[tool.ruff]
+line-length = 120
+exclude = [
+  "build",
+  "dist",
+  "docs",
+]
+
+lint.select = [
+  "E",
+  "F",  # see: https://pypi.org/project/pyflakes
+  "I",  # implementation for isort
+  "UP", # see: https://docs.astral.sh/ruff/rules/#pyupgrade-up
+  "W",  # see: https://pypi.org/project/pycodestyle
+]
+
+lint.ignore = [
+  "E501", # Line too long
+  "E731", # Do not assign a lambda expression, use a def
+  "E741", # todo: Ambiguous variable name
+  "F841", # todo: Local variable is assigned to but never used
+]
+# Use Google-style docstrings.
+lint.pydocstyle.convention = "google"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
