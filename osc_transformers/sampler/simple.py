@@ -11,7 +11,7 @@ class SimpleSampler(Sampler):
         super().__init__()
         self.top_k = top_k
         self.top_p = top_p
-        logger.info("🎯 Using Default Sampler: TopK → Temperature → Softmax → Sample")
+        logger.info("🎯 Using Simple Sampler: TopK → Temperature → Softmax → Sample")
 
     @torch.compile(dynamic=True)
     def forward(self, logits: torch.Tensor, temperatures: torch.Tensor):

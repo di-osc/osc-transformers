@@ -1,4 +1,4 @@
 from .base import Sampler, SamplingParams
-from .default import SimpleSampler
+from .simple import SimpleSampler
 
 __all__ = ["SimpleSampler", "Sampler", "SamplingParams"]
