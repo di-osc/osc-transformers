@@ -1,12 +1,12 @@
 import functools
 import importlib
 import operator
-from typing import Callable
-from packaging.version import Version
+from collections.abc import Callable
 
 import torch
 import triton
 import triton.language as tl
+from packaging.version import Version
 
 
 def infer_device():

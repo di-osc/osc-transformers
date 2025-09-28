@@ -1,9 +1,10 @@
 from pathlib import Path
-from osc_transformers.normalization import Normalization
-from osc_transformers.registry import Registry
-from osc_transformers import TransformerDecoder, Sequence, SamplingParams
+
 import torch
 
+from osc_transformers import SamplingParams, Sequence, TransformerDecoder
+from osc_transformers.normalization import Normalization
+from osc_transformers.registry import Registry
 
 # 使用配置文件构建模型
 config = Path(__file__).parent / "configs" / "qwen3-0_6B.cfg"

@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
 
-from .base import Normalization
-from ..registry import Registry
 from ..ops.rms_norm import LigerRMSNormFunction
+from ..registry import Registry
+from .base import Normalization
 
 
 @Registry.normalization.register("RMSNorm.torch")
@@ -68,9 +68,7 @@ class TritonRMSNorm(Normalization):
             "ones",
             "zeros",
         ], f"init_fn must be either 'ones' or 'zeros', got {init_fn}"
-        self.weight = nn.Parameter(
-            torch.ones(in_dim) if init_fn == "ones" else torch.zeros(in_dim)
-        )
+        self.weight = nn.Parameter(torch.ones(in_dim) if init_fn == "ones" else torch.zeros(in_dim))
         (
             self.variance_epsilon,
             self.offset,

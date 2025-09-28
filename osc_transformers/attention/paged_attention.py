@@ -1,15 +1,14 @@
-from typing import Optional, Tuple
 import math
 from functools import lru_cache
 
-import torch.nn as nn
 import torch
+import torch.nn as nn
 import triton
 import triton.language as tl
 from flash_attn import flash_attn_varlen_func, flash_attn_with_kvcache
 
-from .base import CausalSelfAttention, AttentionContext
 from ..registry import Registry
+from .base import AttentionContext, CausalSelfAttention
 
 
 @Registry.attention.register("PagedAttention")
@@ -36,25 +35,23 @@ class PagedAttention(CausalSelfAttention):
         self,
         in_dim: int,
         num_heads: int,
-        head_dim: Optional[int] = None,
+        head_dim: int | None = None,
         q_bias: bool = False,
         k_bias: bool = False,
         v_bias: bool = False,
         o_bias: bool = False,
-        num_query_groups: Optional[int] = None,
+        num_query_groups: int | None = None,
         use_qkv_proj: bool = False,
         qkv_bias: bool = False,
-        q_norm: Optional[nn.Module] = None,
-        k_norm: Optional[nn.Module] = None,
+        q_norm: nn.Module | None = None,
+        k_norm: nn.Module | None = None,
         apply_rope: bool = True,
         rope_base: int = 10000,
         scale: float | None = None,
     ):
         super().__init__()
 
-        assert (
-            in_dim % num_heads == 0
-        ), f"dim {in_dim} must be divisible by num_heads {num_heads}"
+        assert in_dim % num_heads == 0, f"dim {in_dim} must be divisible by num_heads {num_heads}"
 
         self.num_heads = num_heads
         self.head_dim = head_dim or in_dim // num_heads
@@ -63,17 +60,12 @@ class PagedAttention(CausalSelfAttention):
         self.use_qkv_proj = use_qkv_proj
         if not use_qkv_proj:
             self.q_proj = nn.Linear(in_dim, self.num_heads * self.head_dim, bias=q_bias)
-            self.k_proj = nn.Linear(
-                in_dim, self.num_query_groups * self.head_dim, bias=k_bias
-            )
-            self.v_proj = nn.Linear(
-                in_dim, self.num_query_groups * self.head_dim, bias=v_bias
-            )
+            self.k_proj = nn.Linear(in_dim, self.num_query_groups * self.head_dim, bias=k_bias)
+            self.v_proj = nn.Linear(in_dim, self.num_query_groups * self.head_dim, bias=v_bias)
         else:
             self.qkv_proj = nn.Linear(
                 in_dim,
-                self.num_heads * self.head_dim
-                + self.num_query_groups * self.head_dim * 2,
+                self.num_heads * self.head_dim + self.num_query_groups * self.head_dim * 2,
                 bias=qkv_bias,
             )
 
@@ -244,14 +236,14 @@ def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.T
     return roped.to(x.dtype)
 
 
-@lru_cache()
+@lru_cache
 def build_rope_cache(
     seq_len: int,
     n_elem: int,
     device: torch.device = "cpu",
     base: int = 10000,
     condense_ratio: int = 1,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Enhanced Transformer with Rotary Position Embedding.
     Derived from: https://github.com/labmlai/annotated_deep_learning_paper_implementations/blob/master/labml_nn/
     transformers/rope/__init__.py. MIT License:
@@ -316,6 +308,4 @@ def store_kvcache(
     assert key.stride(1) == head_dim and value.stride(1) == head_dim
     assert k_cache.stride(1) == D and v_cache.stride(1) == D
     assert slot_mapping.numel() == N
-    store_kvcache_kernel[(N,)](
-        key, key.stride(0), value, value.stride(0), k_cache, v_cache, slot_mapping, D
-    )
+    store_kvcache_kernel[(N,)](key, key.stride(0), value, value.stride(0), k_cache, v_cache, slot_mapping, D)

@@ -1,9 +1,10 @@
-from typing import Mapping, List, Any, Generator, Tuple
+import time
+from collections.abc import Generator, Mapping
 from copy import deepcopy
 from pathlib import Path
 from queue import Queue
-import time
-from threading import Thread, Event
+from threading import Event, Thread
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -11,14 +12,14 @@ from confection import Config
 from loguru import logger
 
 from .attention import AttentionContext, CausalSelfAttention
-from .registry import Registry
 from .embedding import Embedding
 from .feedforward import FeedForward
 from .head import Head
 from .normalization import Normalization
-from .sampler import Sampler, SimpleSampler, SamplingParams
-from .sequence import Sequence
+from .registry import Registry
+from .sampler import Sampler, SimpleSampler
 from .scheduler import Scheduler
+from .sequence import Sequence
 
 
 @Registry.architecture.register("TransformerDecoder")
@@ -38,7 +39,7 @@ class TransformerDecoder(nn.Module):
         self.prenorm = prenorm
         self.num_layers = num_layers
         self.embedding = embedding
-        self.layers: List[TransformerDecoderLayer] = nn.ModuleList(
+        self.layers: list[TransformerDecoderLayer] = nn.ModuleList(
             [
                 TransformerDecoderLayer(
                     attention=deepcopy(attention),
@@ -114,13 +115,9 @@ class TransformerDecoder(nn.Module):
                 self.stop_event.set()
                 self.scheduler.set_all_failed(str(e))
                 break
-        logger.info(
-            "🛑 inference loop stopped, you can call setup() again to start a new loop"
-        )
+        logger.info("🛑 inference loop stopped, you can call setup() again to start a new loop")
 
-    def prepare_prefill(
-        self, seqs: List[Sequence]
-    ) -> Tuple[torch.Tensor, AttentionContext]:
+    def prepare_prefill(self, seqs: list[Sequence]) -> tuple[torch.Tensor, AttentionContext]:
         input_ids = []
         positions = []
         cu_seqlens_q = [0]
@@ -150,21 +147,11 @@ class TransformerDecoder(nn.Module):
                 slot_mapping.extend(list(range(start, end)))
         if cu_seqlens_k[-1] > cu_seqlens_q[-1]:  # prefix cache
             block_tables = self.prepare_block_tables(seqs)
-        input_ids = torch.tensor(input_ids, dtype=torch.int64, pin_memory=True).cuda(
-            non_blocking=True
-        )
-        positions = torch.tensor(positions, dtype=torch.int64, pin_memory=True).cuda(
-            non_blocking=True
-        )
-        cu_seqlens_q = torch.tensor(
-            cu_seqlens_q, dtype=torch.int32, pin_memory=True
-        ).cuda(non_blocking=True)
-        cu_seqlens_k = torch.tensor(
-            cu_seqlens_k, dtype=torch.int32, pin_memory=True
-        ).cuda(non_blocking=True)
-        slot_mapping = torch.tensor(
-            slot_mapping, dtype=torch.int32, pin_memory=True
-        ).cuda(non_blocking=True)
+        input_ids = torch.tensor(input_ids, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
+        positions = torch.tensor(positions, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
+        cu_seqlens_q = torch.tensor(cu_seqlens_q, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
+        cu_seqlens_k = torch.tensor(cu_seqlens_k, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
+        slot_mapping = torch.tensor(slot_mapping, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
         attn_ctx = AttentionContext(
             input_pos=positions,
             is_prefill=True,
@@ -178,7 +165,7 @@ class TransformerDecoder(nn.Module):
         return input_ids, attn_ctx
 
     @torch.inference_mode()
-    def prefill(self, seqs: List[Sequence]) -> List[Sequence]:
+    def prefill(self, seqs: list[Sequence]) -> list[Sequence]:
         if not seqs:
             return seqs
         input_ids, attn_ctx = self.prepare_prefill(seqs)
@@ -189,9 +176,7 @@ class TransformerDecoder(nn.Module):
             seq.append_token(token_id)
         return seqs
 
-    def prepare_decode(
-        self, seqs: List[Sequence]
-    ) -> Tuple[torch.Tensor, AttentionContext]:
+    def prepare_decode(self, seqs: list[Sequence]) -> tuple[torch.Tensor, AttentionContext]:
         input_ids = []
         positions = []
         slot_mapping = []
@@ -201,22 +186,12 @@ class TransformerDecoder(nn.Module):
             positions.append(len(seq))
             context_lens.append(len(seq))
             slot_mapping.append(
-                seq.block_table[-1] * self.scheduler.block_manager.block_size
-                + seq.last_block_num_tokens
-                - 1
+                seq.block_table[-1] * self.scheduler.block_manager.block_size + seq.last_block_num_tokens - 1
             )
-        input_ids = torch.tensor(input_ids, dtype=torch.int64, pin_memory=True).cuda(
-            non_blocking=True
-        )
-        positions = torch.tensor(positions, dtype=torch.int64, pin_memory=True).cuda(
-            non_blocking=True
-        )
-        slot_mapping = torch.tensor(
-            slot_mapping, dtype=torch.int32, pin_memory=True
-        ).cuda(non_blocking=True)
-        context_lens = torch.tensor(
-            context_lens, dtype=torch.int32, pin_memory=True
-        ).cuda(non_blocking=True)
+        input_ids = torch.tensor(input_ids, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
+        positions = torch.tensor(positions, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
+        slot_mapping = torch.tensor(slot_mapping, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
+        context_lens = torch.tensor(context_lens, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
         block_tables = self.prepare_block_tables([seq for seq in seqs])
         attn_ctx = AttentionContext(
             input_pos=positions,
@@ -228,7 +203,7 @@ class TransformerDecoder(nn.Module):
         return input_ids, attn_ctx
 
     @torch.inference_mode()
-    def decode(self, seqs: List[Sequence]) -> List[Sequence]:
+    def decode(self, seqs: list[Sequence]) -> list[Sequence]:
         if not seqs:
             return seqs
         input_ids, attn_ctx = self.prepare_decode(seqs)
@@ -245,41 +220,33 @@ class TransformerDecoder(nn.Module):
             graph_vars["input_pos"][:bs] = attn_ctx.input_pos
             graph_vars["slot_mapping"][:bs] = attn_ctx.slot_mapping
             graph_vars["context_lens"][:bs] = attn_ctx.context_lens
-            graph_vars["block_tables"][:bs, : attn_ctx.block_tables.size(1)] = (
-                attn_ctx.block_tables
-            )
+            graph_vars["block_tables"][:bs, : attn_ctx.block_tables.size(1)] = attn_ctx.block_tables
             graph.replay()
             logits = self.compute_logits(graph_vars["outputs"][:bs])
-        temperatures = self.prepare_sample([seq for seq in seqs])
+        temperatures = self.prepare_sample(seqs=seqs)
         token_ids = self.sampler(logits, temperatures).tolist()
         for seq, token_id in zip(seqs, token_ids):
             seq.append_token(token_id)
         return seqs
 
-    def prepare_sample(self, seqs: List[Sequence]):
+    def prepare_sample(self, seqs: list[Sequence]):
         temperatures = []
         for seq in seqs:
             temperatures.append(seq.temperature)
-        temperatures = torch.tensor(
-            temperatures, dtype=torch.float32, pin_memory=True
-        ).cuda(non_blocking=True)
+        temperatures = torch.tensor(temperatures, dtype=torch.float32, pin_memory=True).cuda(non_blocking=True)
         return temperatures
 
-    def prepare_block_tables(self, seqs: List[Sequence]):
+    def prepare_block_tables(self, seqs: list[Sequence]):
         max_len = max(len(seq.block_table) for seq in seqs)
-        block_tables = [
-            seq.block_table + [-1] * (max_len - len(seq.block_table)) for seq in seqs
-        ]
-        block_tables = torch.tensor(
-            block_tables, dtype=torch.int32, pin_memory=True
-        ).cuda(non_blocking=True)
+        block_tables = [seq.block_table + [-1] * (max_len - len(seq.block_table)) for seq in seqs]
+        block_tables = torch.tensor(block_tables, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
         return block_tables
 
     def setup(
         self,
         max_model_len: int = 4096,
         gpu_memory_utilization: float = 0.5,
-        eos: int | List[int] | None = None,
+        eos: int | list[int] | None = None,
         max_num_seqs: int = 512,
         block_size: int = 256,
         cuda_graph: bool = True,
@@ -290,11 +257,7 @@ class TransformerDecoder(nn.Module):
     ) -> None:
         self.dtype = dtype
         if self.run_thread is not None:
-            logger.info(
-                "🔄 Re-initializing {} with device: {} and dtype: {}".format(
-                    model_name, device, dtype
-                )
-            )
+            logger.info(f"🔄 Re-initializing {model_name} with device: {device} and dtype: {dtype}")
             self.stop_event.set()
             self.run_thread.join()
             self.run_thread = None
@@ -302,11 +265,7 @@ class TransformerDecoder(nn.Module):
             self.clear_cache()
             torch.cuda.reset_peak_memory_stats(device=device)
         else:
-            logger.info(
-                "🔄 Initializing {} with device: {} and dtype: {}".format(
-                    model_name, device, dtype
-                )
-            )
+            logger.info(f"🔄 Initializing {model_name} with device: {device} and dtype: {dtype}")
         self.name = model_name
         torch.set_default_device(device)
         torch.set_default_dtype(dtype)
@@ -320,17 +279,8 @@ class TransformerDecoder(nn.Module):
         current = torch.cuda.memory_stats()["allocated_bytes.all.current"]
         num_kv_heads = self.layers[0].attention.num_kv_heads
         kv_head_dim = self.layers[0].attention.kv_head_dim
-        block_bytes = (
-            2
-            * self.num_layers
-            * block_size
-            * num_kv_heads
-            * kv_head_dim
-            * dtype.itemsize
-        )
-        num_kvcache_blocks = (
-            int(total * gpu_memory_utilization - used - peak + current) // block_bytes
-        )
+        block_bytes = 2 * self.num_layers * block_size * num_kv_heads * kv_head_dim * dtype.itemsize
+        num_kvcache_blocks = int(total * gpu_memory_utilization - used - peak + current) // block_bytes
         if num_kvcache_blocks <= 0:
             logger.error("❌ Not enough GPU memory to allocate KV cache")
             return
@@ -344,9 +294,7 @@ class TransformerDecoder(nn.Module):
             f"Model: {format_bytes(model_memory)}, KV Cache: {format_bytes(kv_cache_memory)} "
         )
         max_concurrent_seqs = max_num_batched_tokens // max_model_len
-        logger.info(
-            f"💾 Max concurrent seqs: {max_concurrent_seqs}, Max total tokens: {max_num_batched_tokens}"
-        )
+        logger.info(f"💾 Max concurrent seqs: {max_concurrent_seqs}, Max total tokens: {max_num_batched_tokens}")
         self.scheduler = Scheduler(
             max_num_seqs=max_num_seqs,
             max_num_batched_tokens=max_num_batched_tokens,
@@ -364,9 +312,6 @@ class TransformerDecoder(nn.Module):
             )
         if sampler is None:
             sampler = SimpleSampler()
-            logger.info(
-                "🎯 Using Default Sampler: TopK → Temperature → TopP → Softmax → Sample"
-            )
         self.sampler = sampler
         if cuda_graph:
             logger.info("⚡ Capturing CUDA Graph for acceleration")
@@ -395,10 +340,8 @@ class TransformerDecoder(nn.Module):
             self.graph_vars = {}
         torch.cuda.empty_cache()
 
-    def batch(self, seqs: List[Sequence], timeout: float | None = None):
-        assert (
-            self.run_thread is not None
-        ), "{} is not running, please call setup() first".format(self.name)
+    def batch(self, seqs: list[Sequence], timeout: float | None = None):
+        assert self.run_thread is not None, f"{self.name} is not running, please call setup() first"
         response_queue = Queue()
         num_seqs = len(seqs)
         results = []
@@ -411,12 +354,8 @@ class TransformerDecoder(nn.Module):
                 break
         return results
 
-    def stream(
-        self, seq: Sequence, timeout: float | None = None
-    ) -> Generator[int, None, None]:
-        assert (
-            self.run_thread is not None
-        ), "{} is not running, please call setup() first".format(self.name)
+    def stream(self, seq: Sequence, timeout: float | None = None) -> Generator[int, None, None]:
+        assert self.run_thread is not None, f"{self.name} is not running, please call setup() first"
         response_queue = Queue()
         seq.stream_response = True
         self.scheduler.add(seq, response_queue)
@@ -467,9 +406,7 @@ class TransformerDecoder(nn.Module):
             outputs=outputs,
         )
 
-    def load_state_dict(
-        self, state_dict: Mapping[str, Any], strict: bool = True, assign: bool = True
-    ):
+    def load_state_dict(self, state_dict: Mapping[str, Any], strict: bool = True, assign: bool = True):
         # 保证在用torch.device('meta')构建模型后, 可以运行model.to('cuda:xxx'),不然会由于cos和sin是meta data而报错
         return super().load_state_dict(state_dict, strict, assign)
 
@@ -489,10 +426,7 @@ class TransformerDecoder(nn.Module):
             if n == "embedding" and not include_embeddings:
                 continue
             model_size += sum(
-                [
-                    p.numel() * p.dtype.itemsize
-                    for p in itertools.chain(children.parameters(), children.buffers())
-                ]
+                [p.numel() * p.dtype.itemsize for p in itertools.chain(children.parameters(), children.buffers())]
             )
         return model_size / 1024 / 1024
 
@@ -515,9 +449,7 @@ class TransformerDecoder(nn.Module):
             raise ValueError(f"{model_section} section is required")
         if empty_init:
             with torch.device("meta"):
-                model: TransformerDecoder = Registry.resolve(config=config)[
-                    model_section
-                ]
+                model: TransformerDecoder = Registry.resolve(config=config)[model_section]
         else:
             model: TransformerDecoder = Registry.resolve(config=config)[model_section]
         return model.eval()

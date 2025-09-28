@@ -1,5 +1,5 @@
-import torch.nn as nn
 import torch
+import torch.nn as nn
 
 from ..registry import Registry
 from .base import Head
@@ -12,9 +12,7 @@ class LMHead(Head):
         self.in_dim = in_dim
         self.out_dim = out_dim
         self.bias = bias
-        self.predictor = nn.Linear(
-            in_features=self.in_dim, out_features=self.out_dim, bias=self.bias
-        )
+        self.predictor = nn.Linear(in_features=self.in_dim, out_features=self.out_dim, bias=self.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.predictor(x)

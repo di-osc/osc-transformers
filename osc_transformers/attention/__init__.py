@@ -1,4 +1,4 @@
 from .base import CausalSelfAttention
-from .paged_attention import PagedAttention, AttentionContext
+from .paged_attention import AttentionContext, PagedAttention
 
 __all__ = ["CausalSelfAttention", "PagedAttention", "AttentionContext"]

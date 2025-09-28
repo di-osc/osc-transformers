@@ -4,9 +4,7 @@ import torch
 import triton
 import triton.language as tl
 
-from .utils import calculate_settings
-from .utils import compare_version
-from .utils import ensure_contiguous
+from .utils import calculate_settings, compare_version, ensure_contiguous
 
 if compare_version("triton", operator.ge, "3.0.0"):
     try:
@@ -184,14 +182,10 @@ _str_to_casting_mode = {
 
 def rms_norm_forward(X, W, eps, offset, casting_mode, row_mode):
     if not isinstance(casting_mode, int):
-        assert (
-            casting_mode in _str_to_casting_mode
-        ), f"Invalid casting mode: {casting_mode}"
+        assert casting_mode in _str_to_casting_mode, f"Invalid casting mode: {casting_mode}"
         casting_mode = _str_to_casting_mode[casting_mode]
     else:
-        assert (
-            casting_mode in _str_to_casting_mode.values()
-        ), f"Invalid casting mode: {casting_mode}"
+        assert casting_mode in _str_to_casting_mode.values(), f"Invalid casting mode: {casting_mode}"
 
     shape = X.shape
     dim = shape[-1]
@@ -202,17 +196,11 @@ def rms_norm_forward(X, W, eps, offset, casting_mode, row_mode):
     Y = torch.empty((n_rows, n_cols), dtype=X.dtype, device=X.device)
     # RSTD is to cache rstd for each row
     # RSTD is always computed/stored in fp32 if we are using Llama or Gemma casting mode
-    rstd_dtype = (
-        torch.float32
-        if casting_mode in (_CASTING_MODE_LLAMA.value, _CASTING_MODE_GEMMA.value)
-        else X.dtype
-    )
+    rstd_dtype = torch.float32 if casting_mode in (_CASTING_MODE_LLAMA.value, _CASTING_MODE_GEMMA.value) else X.dtype
     RSTD = torch.empty(n_rows, dtype=rstd_dtype, device=X.device)
 
     # Check constraints.
-    assert (
-        X.shape[1] == W.shape[0]
-    ), "Incompatible hidden size dimension between tensor1.shape[1] and tensor2.shape[0]"
+    assert X.shape[1] == W.shape[0], "Incompatible hidden size dimension between tensor1.shape[1] and tensor2.shape[0]"
 
     # XPU-specific optimization
     kernel_args = {}
@@ -284,16 +272,12 @@ class LigerRMSNormFunction(torch.autograd.Function):
 
     @staticmethod
     @ensure_contiguous
-    def forward(
-        ctx, X, W, eps, offset=0.0, casting_mode="llama", in_place=True, row_mode=None
-    ):
+    def forward(ctx, X, W, eps, offset=0.0, casting_mode="llama", in_place=True, row_mode=None):
         """
         X: (B, T, H) or (BxT, H)
         W: (H,)
         """
-        Y, X, RSTD, BLOCK_SIZE, num_warps, casting_mode = rms_norm_forward(
-            X, W, eps, offset, casting_mode, row_mode
-        )
+        Y, X, RSTD, BLOCK_SIZE, num_warps, casting_mode = rms_norm_forward(X, W, eps, offset, casting_mode, row_mode)
         ctx.offset = offset
         ctx.casting_mode = casting_mode
         ctx.in_place = in_place

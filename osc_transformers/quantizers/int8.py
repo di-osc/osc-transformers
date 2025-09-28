@@ -1,9 +1,9 @@
-import torch.nn as nn
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 
-from .base import Quantizer
 from ..registry import Registry
+from .base import Quantizer
 
 
 @Registry.quantizers.register("int8")
@@ -39,9 +39,7 @@ class Int8Quantizer(Quantizer):
         model = self._replace_linear_weight_only_int8_per_channel(model)
         return model
 
-    def _replace_linear_weight_only_int8_per_channel(
-        self, module: nn.Module
-    ) -> nn.Module:
+    def _replace_linear_weight_only_int8_per_channel(self, module: nn.Module) -> nn.Module:
         """递归替换module中的所有nn.Linear为WeightOnlyInt8Linear"""
         for name, child in module.named_children():
             if isinstance(child, nn.Linear):
@@ -52,9 +50,7 @@ class Int8Quantizer(Quantizer):
                         Int8Linear(child.in_features, child.out_features, bias=True),
                     )
                 else:
-                    setattr(
-                        module, name, Int8Linear(child.in_features, child.out_features)
-                    )
+                    setattr(module, name, Int8Linear(child.in_features, child.out_features))
             else:
                 self._replace_linear_weight_only_int8_per_channel(child)
         return module
@@ -109,22 +105,16 @@ class Int8Linear(nn.Module):
 
         self.in_features = in_features
         self.out_features = out_features
-        self.register_buffer(
-            "weight", torch.empty((out_features, in_features), dtype=torch.int8)
-        )
+        self.register_buffer("weight", torch.empty((out_features, in_features), dtype=torch.int8))
         self.register_buffer("scales", torch.ones(out_features, dtype=torch.bfloat16))
         if bias:
-            self.register_buffer(
-                "bias", torch.zeros(out_features, dtype=torch.bfloat16)
-            )
+            self.register_buffer("bias", torch.zeros(out_features, dtype=torch.bfloat16))
         else:
             self.bias = None
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         if self.bias is not None:
-            logits = F.linear(
-                input, self.weight.to(dtype=input.dtype)
-            ) * self.scales + self.bias.to(dtype=input.dtype)
+            logits = F.linear(input, self.weight.to(dtype=input.dtype)) * self.scales + self.bias.to(dtype=input.dtype)
         else:
             logits = F.linear(input, self.weight.to(dtype=input.dtype)) * self.scales
         return logits

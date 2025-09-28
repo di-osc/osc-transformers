@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
-import torch.nn as nn
 import torch
+import torch.nn as nn
 
 
 class CausalSelfAttention(nn.Module):

@@ -1,7 +1,6 @@
 from copy import copy
 from enum import Enum, auto
 from itertools import count
-from typing import List
 
 from .sampler import SamplingParams
 
@@ -18,7 +17,7 @@ class Sequence:
 
     def __init__(
         self,
-        token_ids: List[int],
+        token_ids: list[int],
         sampling_params=SamplingParams(),
         end_char: str = "[NONE]",
         stream_response: bool = False,
@@ -69,7 +68,7 @@ class Sequence:
     def last_block_num_tokens(self):
         return self.num_tokens - (self.num_blocks - 1) * self.block_size
 
-    def block(self, i: int) -> List[int]:
+    def block(self, i: int) -> list[int]:
         """get token ids of the i-th block"""
         assert 0 <= i < self.num_blocks
         return self.token_ids[i * self.block_size : (i + 1) * self.block_size]

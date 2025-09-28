@@ -1,11 +1,11 @@
-from random import randint
 import time
 from pathlib import Path
+from random import randint
 
 from jsonargparse import auto_cli
 from loguru import logger
 
-from osc_transformers import TransformerDecoder, Sequence, SamplingParams
+from osc_transformers import SamplingParams, Sequence, TransformerDecoder
 
 
 def bench(
@@ -33,10 +33,7 @@ def bench(
     )
 
     def create_seqs(num_seqs: int) -> list[Sequence]:
-        prompt_token_ids = [
-            [randint(0, 10000) for _ in range(randint(100, max_input_len))]
-            for _ in range(num_seqs)
-        ]
+        prompt_token_ids = [[randint(0, 10000) for _ in range(randint(100, max_input_len))] for _ in range(num_seqs)]
         seqs = [
             Sequence(
                 token_ids=prompt_token_ids[i],

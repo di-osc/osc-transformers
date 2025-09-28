@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..registry import Registry
 from ..ops.swiglu import LigerSiLUMulFunction
+from ..registry import Registry
 from .base import FeedForward
 
 
@@ -48,6 +48,4 @@ class TritonSwiGLU(FeedForward):
         self.down_proj = nn.Linear(hidden_dim, in_dim, bias=down_bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.down_proj(
-            LigerSiLUMulFunction.apply(self.gate_proj(x), self.up_proj(x))
-        )
+        return self.down_proj(LigerSiLUMulFunction.apply(self.gate_proj(x), self.up_proj(x)))
