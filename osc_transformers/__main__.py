@@ -65,7 +65,7 @@ def bench(
         f"🎯 Prompt tokens: {len(seq.prompt_token_ids)}, First token latency: {first_response_time:.3f}s, Tokens per second: {num_tokens / total_time:.1f} tokens/s"
     )
     # bench throughput
-    logger.info("📊 Starting benchmark for batch inference")
+    logger.info(f"📊 Starting benchmark for {num_seqs} sequences")
     seqs = create_seqs(num_seqs=num_seqs)
     start_time = time.perf_counter()
     seqs = model.batch(seqs=seqs)

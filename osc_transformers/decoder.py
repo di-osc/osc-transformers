@@ -16,7 +16,7 @@ from .embedding import Embedding
 from .feedforward import FeedForward
 from .head import Head
 from .normalization import Normalization
-from .sampler import Sampler, SimpleSampler
+from .sampler import Sampler, SimpleSampler, SamplingParams
 from .sequence import Sequence
 from .scheduler import Scheduler
 
@@ -32,7 +32,6 @@ class TransformerDecoder(nn.Module):
         head: Head,
         norm: Normalization,
         prenorm: bool = True,
-        sampler: Sampler = None,
     ):
         super().__init__()
 
@@ -53,7 +52,7 @@ class TransformerDecoder(nn.Module):
         )
         self.head_norm = norm if self.prenorm else None
         self.head = head
-        self.sampler = sampler or SimpleSampler()
+        self.sampler: Sampler = None
 
         self.enable_cuda_graph = False
         self.scheduler: Scheduler = None
@@ -287,6 +286,7 @@ class TransformerDecoder(nn.Module):
         dtype: torch.dtype = torch.bfloat16,
         device: str = "cuda",
         model_name: str = "TransformerDecoder",
+        sampler: Sampler = None,
     ) -> None:
         self.dtype = dtype
         if self.run_thread is not None:
@@ -303,7 +303,7 @@ class TransformerDecoder(nn.Module):
             torch.cuda.reset_peak_memory_stats(device=device)
         else:
             logger.info(
-                "🏗️ Initializing {} with device: {} and dtype: {}".format(
+                "🔄 Initializing {} with device: {} and dtype: {}".format(
                     model_name, device, dtype
                 )
             )
@@ -339,11 +339,13 @@ class TransformerDecoder(nn.Module):
 
         total_memory_usage = model_memory + kv_cache_memory
         logger.info(
-            f"💾 Total GPU memory: {format_bytes(total_memory_usage)} "
+            f"💾 Allocated GPU memory: {format_bytes(total_memory_usage)} "
             f"({gpu_memory_utilization:.1%} of {format_bytes(total)}), "
             f"Model: {format_bytes(model_memory)}, KV Cache: {format_bytes(kv_cache_memory)} "
-            f"({num_kvcache_blocks} blocks), "
-            f"max {max_num_batched_tokens} batched tokens ({block_size} tokens/block)"
+        )
+        max_concurrent_seqs = max_num_batched_tokens // max_model_len
+        logger.info(
+            f"💾 Max concurrent seqs: {max_concurrent_seqs}, Max total tokens: {max_num_batched_tokens}"
         )
         self.scheduler = Scheduler(
             max_num_seqs=max_num_seqs,
@@ -360,6 +362,12 @@ class TransformerDecoder(nn.Module):
                 device=device,
                 dtype=dtype,
             )
+        if sampler is None:
+            sampler = SimpleSampler()
+            logger.info(
+                "🎯 Using Default Sampler: TopK → Temperature → TopP → Softmax → Sample"
+            )
+        self.sampler = sampler
         if cuda_graph:
             logger.info("⚡ Capturing CUDA Graph for acceleration")
             self.enable_cuda_graph = True
