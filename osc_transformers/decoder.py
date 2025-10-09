@@ -105,10 +105,10 @@ class TransformerDecoder(nn.Module):
                     time.sleep(0.01)
                     continue
                 if is_prefill:
-                    _ = self.prefill(scheduled_seqs)
+                    scheduled_seqs = self.prefill(scheduled_seqs)
                     self.scheduler.check_finished(scheduled_seqs)
                 else:
-                    _ = self.decode(scheduled_seqs)
+                    scheduled_seqs = self.decode(scheduled_seqs)
                     self.scheduler.check_finished(scheduled_seqs)
             except Exception as e:
                 logger.error(e)
@@ -174,6 +174,7 @@ class TransformerDecoder(nn.Module):
         token_ids = self.sampler(logits, temperatures).tolist()
         for seq, token_id in zip(seqs, token_ids):
             seq.append_token(token_id)
+        attn_ctx.reset_run_info()
         return seqs
 
     def prepare_decode(self, seqs: list[Sequence]) -> tuple[torch.Tensor, AttentionContext]:
@@ -192,7 +193,7 @@ class TransformerDecoder(nn.Module):
         positions = torch.tensor(positions, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
         slot_mapping = torch.tensor(slot_mapping, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
         context_lens = torch.tensor(context_lens, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
-        block_tables = self.prepare_block_tables([seq for seq in seqs])
+        block_tables = self.prepare_block_tables(seqs)
         attn_ctx = AttentionContext(
             input_pos=positions,
             is_prefill=False,
@@ -227,6 +228,7 @@ class TransformerDecoder(nn.Module):
         token_ids = self.sampler(logits, temperatures).tolist()
         for seq, token_id in zip(seqs, token_ids):
             seq.append_token(token_id)
+        attn_ctx.reset_run_info()
         return seqs
 
     def prepare_sample(self, seqs: list[Sequence]):
