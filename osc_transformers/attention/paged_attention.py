@@ -229,11 +229,13 @@ class PagedAttention(CausalSelfAttention):
 @torch.compile
 def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
     head_dim = x.size(-1)
+    dtype = x.dtype
+    x = x.to(torch.float32)
     x1 = x[..., : head_dim // 2]  # (B, nh, T, hs/2)
     x2 = x[..., head_dim // 2 :]  # (B, nh, T, hs/2)
     rotated = torch.cat((-x2, x1), dim=-1)  # (B, nh, T, hd)
     roped = (x * cos) + (rotated * sin)
-    return roped.to(x.dtype)
+    return roped.to(dtype)
 
 
 @lru_cache
