@@ -11,19 +11,26 @@ class SimpleSampler(Sampler):
         super().__init__()
         self.top_k = top_k
         self.top_p = top_p
-        logger.info("🎯 Using Simple Sampler: TopK → Temperature → Softmax → Sample")
+        logger.info("🎯 Using Simple Sampler")
 
     @torch.compile
     def forward(self, logits: torch.Tensor, temperatures: torch.Tensor):
-        # topk sampling
-        value, indices = torch.topk(logits, min(self.top_k, logits.size(-1)))
-        logits = torch.full_like(logits, float("-inf")).scatter_(-1, indices, value)
-        # temperature sampling
         logits = logits.float().div_(temperatures.unsqueeze(dim=1))
         probs = torch.softmax(logits, dim=-1)
-        # sample
         sample_tokens = probs.div_(torch.empty_like(probs).exponential_(1).clamp_min_(1e-10)).argmax(dim=-1)
         return sample_tokens
+
+    # @torch.compile
+    # def forward(self, logits: torch.Tensor, temperatures: torch.Tensor):
+    #     # topk sampling
+    #     value, indices = torch.topk(logits, min(self.top_k, logits.size(-1)))
+    #     logits = torch.full_like(logits, float("-inf")).scatter_(-1, indices, value)
+    #     # temperature sampling
+    #     logits = logits.float().div_(temperatures.unsqueeze(dim=1))
+    #     probs = torch.softmax(logits, dim=-1)
+    #     # sample
+    #     sample_tokens = probs.div_(torch.empty_like(probs).exponential_(1).clamp_min_(1e-10)).argmax(dim=-1)
+    #     return sample_tokens
 
     # @torch.compile(fullgraph=True, dynamic=True)
     # def forward(self, logits: torch.Tensor, temperatures: torch.Tensor):
