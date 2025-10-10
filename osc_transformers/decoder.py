@@ -183,7 +183,7 @@ class TransformerDecoder(nn.Module):
         slot_mapping = []
         context_lens = []
         for seq in seqs:
-            input_ids.append(seq.last_token)
+            input_ids.append(seq.last_token_id)
             positions.append(len(seq))
             context_lens.append(len(seq))
             slot_mapping.append(

@@ -95,9 +95,9 @@ class Scheduler:
                 continue
             response_queue = self.response_queues[seq.seq_id]
             if seq.stream_response:
-                response_queue.put(seq.last_token)
+                response_queue.put(seq.last_token_id)
             if (
-                not seq.ignore_eos and seq.last_token in self.eos
+                not seq.ignore_eos and seq.last_token_id in self.eos
             ) or seq.num_completion_tokens == seq.sampling_params.max_generate_tokens:
                 seq.status = SequenceStatus.FINISHED
                 self.block_manager.deallocate(seq)
