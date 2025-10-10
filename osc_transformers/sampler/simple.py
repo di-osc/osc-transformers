@@ -1,5 +1,4 @@
 import torch
-from loguru import logger
 
 from ..registry import Registry
 from .base import Sampler
@@ -11,7 +10,6 @@ class SimpleSampler(Sampler):
         super().__init__()
         self.top_k = top_k
         self.top_p = top_p
-        logger.info("🎯 Using Simple Sampler")
 
     @torch.compile
     def forward(self, logits: torch.Tensor, temperatures: torch.Tensor):
