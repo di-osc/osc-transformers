@@ -6,6 +6,7 @@ from ..registry import Registry
 from .base import Normalization
 
 
+@Registry.normalization.register("RMSNorm")
 @Registry.normalization.register("RMSNorm.torch")
 class TorchRMSNorm(Normalization):
     def __init__(self, in_dim: int, eps: float = 1e-5) -> None:
@@ -50,7 +51,6 @@ class TorchRMSNorm(Normalization):
             return self.add_rms_forward(x, residual)
 
 
-@Registry.normalization.register("RMSNorm")
 @Registry.normalization.register("RMSNorm.triton")
 class TritonRMSNorm(Normalization):
     def __init__(
