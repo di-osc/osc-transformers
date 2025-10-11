@@ -295,8 +295,6 @@ class TransformerDecoder(nn.Module):
             f"({gpu_memory_utilization:.1%} of {format_bytes(total)}), "
             f"Model: {format_bytes(model_memory)}, KV Cache: {format_bytes(kv_cache_memory)} "
         )
-        max_concurrent_seqs = max_num_batched_tokens // max_model_len
-        logger.info(f"💾 Max concurrent seqs: {max_concurrent_seqs}, Max total tokens: {max_num_batched_tokens}")
         self.scheduler = Scheduler(
             max_num_seqs=max_num_seqs,
             max_num_batched_tokens=max_num_batched_tokens,
