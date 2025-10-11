@@ -247,7 +247,7 @@ class TransformerDecoder(nn.Module):
     def setup(
         self,
         max_model_len: int = 4096,
-        gpu_memory_utilization: float = 0.5,
+        gpu_memory_utilization: float | None = None,
         eos: int | list[int] | None = None,
         max_num_seqs: int = 512,
         block_size: int = 256,
@@ -282,7 +282,10 @@ class TransformerDecoder(nn.Module):
         num_kv_heads = self.layers[0].attention.num_kv_heads
         kv_head_dim = self.layers[0].attention.kv_head_dim
         block_bytes = 2 * self.num_layers * block_size * num_kv_heads * kv_head_dim * dtype.itemsize
-        num_kvcache_blocks = int(total * gpu_memory_utilization - used - peak + current) // block_bytes
+        if gpu_memory_utilization is not None:
+            num_kvcache_blocks = int(total * gpu_memory_utilization - used - peak + current) // block_bytes
+        else:
+            num_kvcache_blocks = max_model_len // block_size
         if num_kvcache_blocks <= 0:
             logger.error("❌ Not enough GPU memory to allocate KV cache")
             return
@@ -292,7 +295,6 @@ class TransformerDecoder(nn.Module):
         total_memory_usage = model_memory + kv_cache_memory
         logger.info(
             f"💾 Allocated GPU memory: {format_bytes(total_memory_usage)} "
-            f"({gpu_memory_utilization:.1%} of {format_bytes(total)}), "
             f"Model: {format_bytes(model_memory)}, KV Cache: {format_bytes(kv_cache_memory)} "
         )
         self.scheduler = Scheduler(
