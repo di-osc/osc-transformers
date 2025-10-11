@@ -6,7 +6,6 @@ from ..registry import Registry
 from .base import Normalization
 
 
-@Registry.normalization.register("RMSNorm")
 @Registry.normalization.register("RMSNorm.torch")
 class TorchRMSNorm(Normalization):
     def __init__(self, in_dim: int, eps: float = 1e-5) -> None:
@@ -51,6 +50,7 @@ class TorchRMSNorm(Normalization):
             return self.add_rms_forward(x, residual)
 
 
+@Registry.normalization.register("RMSNorm")
 @Registry.normalization.register("RMSNorm.triton")
 class TritonRMSNorm(Normalization):
     def __init__(
@@ -84,6 +84,8 @@ class TritonRMSNorm(Normalization):
         )
 
     def forward(self, hidden_states: torch.Tensor):
+        orig_dtype = hidden_states.dtype
+        hidden_states = hidden_states.to(torch.float32)
         return LigerRMSNormFunction.apply(
             hidden_states,
             self.weight,
@@ -92,4 +94,4 @@ class TritonRMSNorm(Normalization):
             self.casting_mode,
             self.in_place,
             self.row_mode,
-        )
+        ).to(orig_dtype)
