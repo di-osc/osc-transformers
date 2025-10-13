@@ -85,9 +85,6 @@ class TransformerDecoder(nn.Module):
         for layer in self.layers:
             x = layer(x, attn_ctx=attn_ctx)
 
-        if self.prenorm:
-            x = self.head_norm(x)
-
         if attn_ctx.is_prefill:
             last_indices = attn_ctx.cu_seqlens_q[1:] - 1
             x = x[last_indices].contiguous()
@@ -95,7 +92,10 @@ class TransformerDecoder(nn.Module):
         return x
 
     def compute_logits(self, x: torch.Tensor) -> torch.Tensor:
-        return self.head(x)
+        if self.prenorm:
+            x = self.head_norm(x, out_dtype=self.dtype)
+        logis = self.head(x)
+        return logis
 
     def _run_loop(self):
         while not self.stop_event.is_set():
@@ -184,7 +184,7 @@ class TransformerDecoder(nn.Module):
         context_lens = []
         for seq in seqs:
             input_ids.append(seq.last_token_id)
-            positions.append(len(seq))
+            positions.append(len(seq) - 1)
             context_lens.append(len(seq))
             slot_mapping.append(
                 seq.block_table[-1] * self.scheduler.block_manager.block_size + seq.last_block_num_tokens - 1
@@ -256,6 +256,7 @@ class TransformerDecoder(nn.Module):
         device: str = "cuda",
         model_name: str = "TransformerDecoder",
         sampler: Sampler = None,
+        start_run_thread: bool = True,
     ) -> None:
         self.dtype = dtype
         if self.run_thread is not None:
@@ -287,7 +288,9 @@ class TransformerDecoder(nn.Module):
         else:
             num_kvcache_blocks = max_model_len // block_size
         if num_kvcache_blocks <= 0:
-            logger.error("❌ Not enough GPU memory to allocate KV cache")
+            logger.error(
+                "❌ Not enough GPU memory to allocate KV cache, current: {format_bytes(current)}, peak: {format_bytes(peak)}, free: {format_bytes(free)}, total: {format_bytes(total)}"
+            )
             return
         max_num_batched_tokens = num_kvcache_blocks * block_size
         kv_cache_memory = num_kvcache_blocks * block_bytes
@@ -323,10 +326,11 @@ class TransformerDecoder(nn.Module):
                 max_model_len=max_model_len,
                 block_size=block_size,
             )
-        logger.info("🚀 Starting inference loop in background thread")
-        self.run_thread = Thread(target=self._run_loop, daemon=True)
-        self.run_thread.name = model_name
-        self.run_thread.start()
+        if start_run_thread:
+            logger.info("🚀 Starting inference loop in background thread")
+            self.run_thread = Thread(target=self._run_loop, daemon=True)
+            self.run_thread.name = model_name
+            self.run_thread.start()
         torch.set_default_device("cpu")
         torch.set_default_dtype(torch.float32)
 
@@ -478,24 +482,17 @@ class TransformerDecoderLayer(nn.Module):
         x,
         attn_ctx: AttentionContext,
     ):
+        org_dtype = torch.bfloat16
         if self.prenorm:
-            x = (
-                self.attention(
-                    self.attention_norm(x),
-                    attn_ctx=attn_ctx,
-                )
-                + x
-            )
-            x = x + self.feedforward(self.feedforward_norm(x))
+            r = x.to(org_dtype)
+            x = self.attention(self.attention_norm(x, out_dtype=org_dtype), attn_ctx=attn_ctx)
+            x = r.float().add_(x.float())
+
+            r = x.to(org_dtype)
+            x = self.feedforward(self.feedforward_norm(x, out_dtype=org_dtype))
+            x = r.float().add_(x.float())
         else:
-            x = self.attention_norm(
-                self.attention(
-                    x,
-                    attn_ctx=attn_ctx,
-                )
-                + x
-            )
-            x = self.feedforward_norm(self.feedforward(x) + x)
+            raise NotImplementedError("Only prenorm is supported")
         return x
 
 

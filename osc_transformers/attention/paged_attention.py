@@ -122,7 +122,6 @@ class PagedAttention(CausalSelfAttention):
         o = self.scaled_dot_product_attention(q, k, v, attn_ctx)
 
         o = self.o_proj(o.reshape(L, -1))
-
         return o
 
     @torch.compile

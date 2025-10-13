@@ -7,6 +7,7 @@ from ..registry import Registry
 from .base import FeedForward
 
 
+@Registry.feedforward.register("SwiGLU")
 @Registry.feedforward.register("SwiGLU.torch")
 class SwiGLU(FeedForward):
     def __init__(
@@ -24,14 +25,11 @@ class SwiGLU(FeedForward):
 
     @torch.compile
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x1 = self.up_proj(x)
-        x2 = self.gate_proj(x)
-        x = F.silu(x2) * x1
-        x = self.down_proj(x)
+        h = F.silu(self.gate_proj(x)) * self.up_proj(x)
+        x = self.down_proj(h)
         return x
 
 
-@Registry.feedforward.register("SwiGLU")
 @Registry.feedforward.register("SwiGLU.triton")
 class TritonSwiGLU(FeedForward):
     def __init__(
