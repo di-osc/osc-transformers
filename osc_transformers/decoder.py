@@ -76,24 +76,19 @@ class TransformerDecoder(nn.Module):
             attn_ctx (AttentionContext): Attention context.
         """
         assert len(input_ids.shape) == 1, "input must be 1d"
-        L = input_ids.size()[0]
-        if attn_ctx.input_pos is None:
-            attn_ctx.input_pos = torch.arange(L, dtype=torch.int32)
 
         x = self.embedding(input_ids)
-
+        residual = None
         for layer in self.layers:
-            x = layer(x, attn_ctx=attn_ctx)
+            x, residual = layer(x, attn_ctx=attn_ctx, residual=residual)
+        if self.prenorm:
+            x, _ = self.head_norm(x, residual)
+        return x
 
+    def compute_logits(self, x: torch.Tensor, attn_ctx: AttentionContext) -> torch.Tensor:
         if attn_ctx.is_prefill:
             last_indices = attn_ctx.cu_seqlens_q[1:] - 1
             x = x[last_indices].contiguous()
-
-        return x
-
-    def compute_logits(self, x: torch.Tensor) -> torch.Tensor:
-        if self.prenorm:
-            x = self.head_norm(x, out_dtype=self.dtype)
         logis = self.head(x)
         return logis
 
@@ -169,7 +164,7 @@ class TransformerDecoder(nn.Module):
         if not seqs:
             return seqs
         input_ids, attn_ctx = self.prepare_prefill(seqs)
-        logits = self.compute_logits(self.forward(input_ids, attn_ctx))
+        logits = self.compute_logits(self.forward(input_ids, attn_ctx), attn_ctx)
         temperatures = self.prepare_sample([seq for seq in seqs])
         token_ids = self.sampler(logits, temperatures).tolist()
         for seq, token_id in zip(seqs, token_ids):
@@ -209,21 +204,20 @@ class TransformerDecoder(nn.Module):
             return seqs
         input_ids, attn_ctx = self.prepare_decode(seqs)
         if not self.enable_cuda_graph:
-            logits = self.compute_logits(self.forward(input_ids, attn_ctx))
+            logits = self.compute_logits(self.forward(input_ids, attn_ctx), attn_ctx)
         else:
             bs = input_ids.size(0)
             graph = self.graphs[next(x for x in self.graph_bs if x >= bs)]
             graph_vars = self.graph_vars
-            for k, v in graph_vars.items():
-                if k != "outputs":
-                    v.zero_()
             graph_vars["input_ids"][:bs] = input_ids
             graph_vars["input_pos"][:bs] = attn_ctx.input_pos
+            graph_vars["slot_mapping"].fill_(-1)
             graph_vars["slot_mapping"][:bs] = attn_ctx.slot_mapping
+            graph_vars["context_lens"].zero_()
             graph_vars["context_lens"][:bs] = attn_ctx.context_lens
             graph_vars["block_tables"][:bs, : attn_ctx.block_tables.size(1)] = attn_ctx.block_tables
             graph.replay()
-            logits = self.compute_logits(graph_vars["outputs"][:bs])
+            logits = self.compute_logits(graph_vars["outputs"][:bs], attn_ctx)
         temperatures = self.prepare_sample(seqs=seqs)
         token_ids = self.sampler(logits, temperatures).tolist()
         for seq, token_id in zip(seqs, token_ids):
@@ -275,7 +269,7 @@ class TransformerDecoder(nn.Module):
         self.to(device=device, dtype=dtype)
         # Record model memory after moving to GPU
         torch.cuda.synchronize()
-        model_memory = torch.cuda.memory_allocated()
+        model_memory = self.model_size(include_embeddings=True)
         free, total = torch.cuda.mem_get_info()
         used = total - free
         peak = torch.cuda.memory_stats()["allocated_bytes.all.peak"]
@@ -296,9 +290,12 @@ class TransformerDecoder(nn.Module):
         kv_cache_memory = num_kvcache_blocks * block_bytes
 
         total_memory_usage = model_memory + kv_cache_memory
+        memory_utilization = total_memory_usage / total * 100
         logger.info(
-            f"💾 Allocated GPU memory: {format_bytes(total_memory_usage)} "
-            f"Model: {format_bytes(model_memory)}, KV Cache: {format_bytes(kv_cache_memory)} "
+            f"💾 GPU Memory allocated: {format_bytes(total_memory_usage)} "
+            f"({memory_utilization:.1f}% of {format_bytes(total)}) | "
+            f"Model: {format_bytes(model_memory)} | KV Cache: {format_bytes(kv_cache_memory)} | "
+            f"Max length: {max_model_len:,} tokens | KV Cache capacity: {max_num_batched_tokens:,} tokens"
         )
         self.scheduler = Scheduler(
             max_num_seqs=max_num_seqs,
@@ -434,7 +431,7 @@ class TransformerDecoder(nn.Module):
             model_size += sum(
                 [p.numel() * p.dtype.itemsize for p in itertools.chain(children.parameters(), children.buffers())]
             )
-        return model_size / 1024 / 1024
+        return model_size
 
     @classmethod
     def from_config(
@@ -481,19 +478,19 @@ class TransformerDecoderLayer(nn.Module):
         self,
         x,
         attn_ctx: AttentionContext,
+        residual: torch.Tensor | None = None,
     ):
-        org_dtype = torch.bfloat16
         if self.prenorm:
-            r = x.to(org_dtype)
-            x = self.attention(self.attention_norm(x, out_dtype=org_dtype), attn_ctx=attn_ctx)
-            x = r.float().add_(x.float())
-
-            r = x.to(org_dtype)
-            x = self.feedforward(self.feedforward_norm(x, out_dtype=org_dtype))
-            x = r.float().add_(x.float())
+            if residual is None:
+                x, residual = self.attention_norm(x), x
+            else:
+                x, residual = self.attention_norm(x, residual)
+            x = self.attention(x, attn_ctx=attn_ctx)
+            x, residual = self.feedforward_norm(x, residual)
+            x = self.feedforward(x)
         else:
             raise NotImplementedError("Only prenorm is supported")
-        return x
+        return x, residual
 
 
 def format_bytes(bytes_val: int) -> str:

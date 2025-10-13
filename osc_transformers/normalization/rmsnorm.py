@@ -15,19 +15,19 @@ class TorchRMSNorm(Normalization):
         self.eps = eps
 
     @torch.compile
-    def rms_forward(self, x: torch.Tensor, out_dtype: torch.dtype) -> torch.Tensor:
-        orig_dtype = out_dtype
+    def rms_forward(self, x: torch.Tensor) -> torch.Tensor:
+        orig_dtype = x.dtype
         x = x.float()
         var = x.pow(2).mean(dim=-1, keepdim=True)
         x = x * (torch.rsqrt(var + self.eps))
         x = x.to(orig_dtype).mul_(self.weight)
         return x
 
-    # @torch.compile
+    @torch.compile
     def add_rms_forward(
-        self, x: torch.Tensor, residual: torch.Tensor, out_dtype: torch.dtype
+        self, x: torch.Tensor, residual: torch.Tensor
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
-        orig_dtype = out_dtype
+        orig_dtype = x.dtype
         x = x.float().add_(residual.float())
         residual = x.to(orig_dtype)
         var = x.pow(2).mean(dim=-1, keepdim=True)
@@ -36,13 +36,12 @@ class TorchRMSNorm(Normalization):
         return x, residual
 
     def forward(
-        self, x: torch.Tensor, residual: torch.Tensor | None = None, out_dtype: torch.dtype | None = None
+        self, x: torch.Tensor, residual: torch.Tensor | None = None
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
-        out_dtype = out_dtype or x.dtype
         if residual is None:
-            return self.rms_forward(x, out_dtype)
+            return self.rms_forward(x)
         else:
-            return self.add_rms_forward(x, residual, out_dtype)
+            return self.add_rms_forward(x, residual)
 
 
 @Registry.normalization.register("RMSNorm.triton")
@@ -77,8 +76,8 @@ class TritonRMSNorm(Normalization):
             row_mode,
         )
 
-    def forward(self, hidden_states: torch.Tensor):
-        orig_dtype = hidden_states.dtype
+    def forward(self, hidden_states: torch.Tensor, out_dtype: torch.dtype | None = None):
+        out_dtype = out_dtype or hidden_states.dtype
         hidden_states = hidden_states.to(torch.float32)
         return LigerRMSNormFunction.apply(
             hidden_states,
@@ -88,4 +87,4 @@ class TritonRMSNorm(Normalization):
             self.casting_mode,
             self.in_place,
             self.row_mode,
-        ).to(orig_dtype)
+        ).to(out_dtype)
