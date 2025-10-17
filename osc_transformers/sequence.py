@@ -27,7 +27,6 @@ class Sequence:
         self.seq_id = next(Sequence.counter)
         self.status = SequenceStatus.WAITING
         self.token_ids = copy(token_ids)
-        self.num_tokens = len(self.token_ids)
         self.num_prompt_tokens = len(token_ids)
         self.num_cached_tokens = 0
         self.block_table = []
@@ -64,6 +63,10 @@ class Sequence:
         return self.num_cached_tokens // self.block_size
 
     @property
+    def num_tokens(self):
+        return len(self.token_ids)
+
+    @property
     def num_blocks(self):
         return (self.num_tokens + self.block_size - 1) // self.block_size
 
@@ -78,10 +81,25 @@ class Sequence:
 
     def append_token(self, token_id: int) -> None:
         self.token_ids.append(token_id)
-        self.num_tokens += 1
 
     def __len__(self):
-        return self.num_tokens
+        return len(self.token_ids)
 
     def __getitem__(self, key):
         return self.token_ids[key]
+
+    def __getstate__(self):
+        return (
+            self.num_tokens,
+            self.num_prompt_tokens,
+            self.num_cached_tokens,
+            self.block_table,
+            self.token_ids if self.num_completion_tokens == 0 else self.last_token,
+        )
+
+    def __setstate__(self, state):
+        self.num_tokens, self.num_prompt_tokens, self.num_cached_tokens, self.block_table = state[:-1]
+        if self.num_completion_tokens == 0:
+            self.token_ids = state[-1]
+        else:
+            self.last_token = state[-1]

@@ -93,10 +93,6 @@ class PagedAttention(CausalSelfAttention):
             x (torch.Tensor): Input tensor of shape (L, D) where L is the batch sequence length and D is the embedding dimensionality (n_embd).
             attn_ctx (AttentionContext): Attention context.
         """
-        if attn_ctx.input_pos is None:
-            attn_ctx.input_pos = torch.arange(
-                x.size(0), device=x.device, dtype=torch.int32
-            )  # default to sequential positions
         L, _ = x.size()
 
         q, k, v = self.qkv_forward(x)
