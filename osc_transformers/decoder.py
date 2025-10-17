@@ -47,12 +47,13 @@ class TransformerDecoder(nn.Module):
                     feedforward=deepcopy(feedforward),
                     feedforward_norm=deepcopy(norm),
                     prenorm=prenorm,
+                    layer_id=i,
                 )
-                for _ in range(num_layers)
+                for i in range(num_layers)
             ]
         )
-        self.head_norm = norm if self.prenorm else None
-        self.head = head
+        self.head_norm = deepcopy(norm) if self.prenorm else None
+        self.head = deepcopy(head)
         self.sampler: Sampler = None
 
         self.enable_cuda_graph = False
@@ -76,10 +77,9 @@ class TransformerDecoder(nn.Module):
             attn_ctx (AttentionContext): Attention context.
         """
         assert len(input_ids.shape) == 1, "input must be 1d"
-
         x = self.embedding(input_ids)
         residual = None
-        for layer in self.layers:
+        for i, layer in enumerate(self.layers):
             x, residual = layer(x, attn_ctx=attn_ctx, residual=residual)
         if self.prenorm:
             x, _ = self.head_norm(x, residual)
@@ -252,6 +252,7 @@ class TransformerDecoder(nn.Module):
         sampler: Sampler = None,
         start_run_thread: bool = True,
     ) -> None:
+        default_dtype = torch.get_default_dtype()
         self.dtype = dtype
         if self.run_thread is not None:
             logger.info(f"🔄 Re-initializing {model_name} with device: {device} and dtype: {dtype}")
@@ -329,7 +330,7 @@ class TransformerDecoder(nn.Module):
             self.run_thread.name = model_name
             self.run_thread.start()
         torch.set_default_device("cpu")
-        torch.set_default_dtype(torch.float32)
+        torch.set_default_dtype(default_dtype)
 
     def clear_cache(self):
         for layer in self.layers:
@@ -466,6 +467,7 @@ class TransformerDecoderLayer(nn.Module):
         feedforward: FeedForward,
         feedforward_norm: Normalization,
         prenorm: bool = True,
+        layer_id: int = 0,
     ):
         super().__init__()
         self.attention = attention
@@ -473,6 +475,7 @@ class TransformerDecoderLayer(nn.Module):
         self.feedforward = feedforward
         self.feedforward_norm = feedforward_norm
         self.prenorm = prenorm
+        self.layer_id = layer_id
 
     def forward(
         self,
