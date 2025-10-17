@@ -1,4 +1,4 @@
 from .base import Normalization
-from .rmsnorm import TorchRMSNorm, TritonRMSNorm
+from .rmsnorm import TorchRMSNorm
 
-__all__ = ["TorchRMSNorm", "TritonRMSNorm", "Normalization"]
+__all__ = ["TorchRMSNorm", "Normalization"]

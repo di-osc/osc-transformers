@@ -233,7 +233,7 @@ def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.T
     return roped.to(dtype)
 
 
-@lru_cache
+@lru_cache(maxsize=1)
 def build_rope_cache(
     seq_len: int,
     n_elem: int,
@@ -257,10 +257,10 @@ def build_rope_cache(
         sin: The sine cache. shape: (seq_len, n_elem/2)
     """
     # $\Theta = {\theta_i = 10000^{\frac{2(i-1)}{d}}, i \in [1, 2, ..., \frac{d}{2}]}$
-    theta = 1.0 / (base ** (torch.arange(0, n_elem, 2, device=device).float() / n_elem))
+    theta = 1.0 / (base ** (torch.arange(0, n_elem, 2, device=device, dtype=torch.float) / n_elem))
 
     # Create position indexes `[0, 1, ..., seq_len - 1]`
-    seq_idx = torch.arange(seq_len, device=device) / condense_ratio
+    seq_idx = torch.arange(seq_len, device=device, dtype=torch.float) / condense_ratio
 
     # Calculate the product of position index and $\theta_i$
     idx_theta = torch.outer(seq_idx, theta).repeat(1, 2)
