@@ -9,7 +9,8 @@ authors = [
 requires-python = ">=3.10"
 dependencies = [
     # core
-    "torch>=2.8.0",
+    "torch==2.8.0",
+    "flash-attn==2.8.3",
     # config系统
     "confection>=0.1.4",
     "catalogue>=2.0.1",
