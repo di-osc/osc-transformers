@@ -317,7 +317,7 @@ class TransformerDecoder(nn.Module):
             sampler = SimpleSampler()
         self.sampler = sampler
         if cuda_graph:
-            logger.info("⚡ Capturing CUDA Graph for acceleration")
+            logger.info(f"⚡ Capturing CUDA Graph for acceleration ({max_num_seqs} sequences)")
             self.enable_cuda_graph = True
             self.capture_cudagraph(
                 max_num_seqs=max_num_seqs,
