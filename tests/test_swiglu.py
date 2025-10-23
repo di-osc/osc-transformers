@@ -47,7 +47,9 @@ class TestSwiGLU:
             triton_output = triton_model(x)
 
         # 检查输出形状一致
-        assert torch_output.shape == triton_output.shape, f"输出形状不一致: torch {torch_output.shape} vs triton {triton_output.shape}"
+        assert (
+            torch_output.shape == triton_output.shape
+        ), f"输出形状不一致: torch {torch_output.shape} vs triton {triton_output.shape}"
 
         # 检查输出值一致（允许小数值差异）
         torch.testing.assert_close(torch_output, triton_output, rtol=1e-5, atol=1e-6)
@@ -70,7 +72,9 @@ class TestSwiGLU:
             triton_output = triton_model(x)
 
         # 检查输出形状一致
-        assert torch_output.shape == triton_output.shape, f"输出形状不一致: torch {torch_output.shape} vs triton {triton_output.shape}"
+        assert (
+            torch_output.shape == triton_output.shape
+        ), f"输出形状不一致: torch {torch_output.shape} vs triton {triton_output.shape}"
 
         # 检查输出值一致（允许小数值差异）
         torch.testing.assert_close(torch_output, triton_output, rtol=1e-5, atol=1e-6)
