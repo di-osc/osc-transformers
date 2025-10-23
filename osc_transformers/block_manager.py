@@ -1,6 +1,5 @@
 from collections import deque
 
-import numpy as np
 import xxhash
 
 from .sequence import Sequence
@@ -43,7 +42,7 @@ class BlockManager:
         h = xxhash.xxh64()
         if prefix != -1:
             h.update(prefix.to_bytes(8, "little"))
-        h.update(np.array(token_ids).tobytes())
+        h.update(b''.join(token_id.to_bytes(8, "little", signed=True) for token_id in token_ids))
         return h.intdigest()
 
     def _allocate_block(self, block_id: int) -> Block:
