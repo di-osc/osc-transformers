@@ -1,6 +1,6 @@
 [project]
 name = "osc-transformers"
-version = "0.3.0"
+version = "0.3.1"
 description = "以配置文件的方式构建transformer模型"
 readme = "README.md"
 authors = [
