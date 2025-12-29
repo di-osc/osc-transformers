@@ -11,19 +11,19 @@ import torch.nn as nn
 from confection import Config
 from loguru import logger
 
-from .attention import AttentionContext, CausalSelfAttention
-from .embedding import Embedding
-from .feedforward import FeedForward
-from .head import Head
-from .normalization import Normalization
-from .registry import Registry
-from .sampler import Sampler, SimpleSampler
-from .scheduler import Scheduler
-from .sequence import Sequence
+from ..attention import AttentionContext, CausalSelfAttention
+from ..embedding import Embedding
+from ..feedforward import FeedForward
+from ..head import Head
+from ..normalization import Normalization
+from ..registry import Registry
+from ..sampler import Sampler, SimpleSampler
+from ..scheduler import Scheduler
+from ..sequence import Sequence
 
 
-@Registry.architecture.register("TransformerDecoder")
-class TransformerDecoder(nn.Module):
+@Registry.architecture.register("Autoregressive")
+class AutoregressiveTransformer(nn.Module):
     def __init__(
         self,
         num_layers: int,
@@ -39,9 +39,9 @@ class TransformerDecoder(nn.Module):
         self.prenorm = prenorm
         self.num_layers = num_layers
         self.embedding = embedding
-        self.layers: list[TransformerDecoderLayer] = nn.ModuleList(
+        self.layers: list[TransformerLayer] = nn.ModuleList(
             [
-                TransformerDecoderLayer(
+                TransformerLayer(
                     attention=deepcopy(attention),
                     attention_norm=deepcopy(norm),
                     feedforward=deepcopy(feedforward),
@@ -60,7 +60,7 @@ class TransformerDecoder(nn.Module):
         self.scheduler: Scheduler = None
 
         self.stop_event = Event()
-        self.name = "TransformerDecoder"
+        self.name = "AutoregressiveTransformer"
         self.run_thread = None
 
         self.dtype = None
@@ -70,7 +70,7 @@ class TransformerDecoder(nn.Module):
         input_ids: torch.Tensor,
         attn_ctx: AttentionContext,
     ):
-        """Forward pass of the TransformerDecoder.
+        """Forward pass of the AutoregressiveTransformer.
 
         Args:
             input_ids (torch.Tensor): Input token ids. shape = (seq_length)
@@ -78,11 +78,10 @@ class TransformerDecoder(nn.Module):
         """
         assert len(input_ids.shape) == 1, "input must be 1d"
         x = self.embedding(input_ids)
-        residual = None
-        for i, layer in enumerate(self.layers):
-            x, residual = layer(x, attn_ctx=attn_ctx, residual=residual)
+        for layer in self.layers:
+            x = layer(x, attn_ctx=attn_ctx)
         if self.prenorm:
-            x, _ = self.head_norm(x, residual)
+            x = self.head_norm(x)
         return x
 
     def compute_logits(self, x: torch.Tensor, attn_ctx: AttentionContext) -> torch.Tensor:
@@ -101,10 +100,9 @@ class TransformerDecoder(nn.Module):
                     continue
                 if is_prefill:
                     scheduled_seqs = self.prefill(scheduled_seqs)
-                    self.scheduler.check_finished(scheduled_seqs)
                 else:
                     scheduled_seqs = self.decode(scheduled_seqs)
-                    self.scheduler.check_finished(scheduled_seqs)
+                self.scheduler.check_finished(scheduled_seqs)
             except Exception as e:
                 logger.error(e)
                 self.stop_event.set()
@@ -248,7 +246,7 @@ class TransformerDecoder(nn.Module):
         cuda_graph: bool = True,
         dtype: torch.dtype = torch.bfloat16,
         device: str = "cuda",
-        model_name: str = "TransformerDecoder",
+        model_name: str = "AutoregressiveTransformer",
         sampler: Sampler = None,
         start_run_thread: bool = True,
     ) -> None:
@@ -331,6 +329,14 @@ class TransformerDecoder(nn.Module):
             self.run_thread.start()
         torch.set_default_device("cpu")
         torch.set_default_dtype(default_dtype)
+
+    def warmup_model(self, num_seqs: int, seq_len: int):
+        """Warmup the model by prefilling the cache for a given number of sequences and sequence length"""
+        torch.cuda.empty_cache()
+        torch.cuda.reset_peak_memory_stats()
+        seqs = [Sequence([0] * seq_len) for _ in range(num_seqs)]
+        self.prefill(seqs)
+        torch.cuda.empty_cache()
 
     def clear_cache(self):
         for layer in self.layers:
@@ -440,7 +446,7 @@ class TransformerDecoder(nn.Module):
         config: Config | str | Path,
         model_section: str = "model",
         empty_init: bool = False,
-    ) -> "TransformerDecoder":
+    ) -> "AutoregressiveTransformer":
         if isinstance(config, Path):
             config = Config().from_disk(config)
         elif isinstance(config, str):
@@ -453,13 +459,13 @@ class TransformerDecoder(nn.Module):
             raise ValueError(f"{model_section} section is required")
         if empty_init:
             with torch.device("meta"):
-                model: TransformerDecoder = Registry.resolve(config=config)[model_section]
+                model: AutoregressiveTransformer = Registry.resolve(config=config)[model_section]
         else:
-            model: TransformerDecoder = Registry.resolve(config=config)[model_section]
+            model: AutoregressiveTransformer = Registry.resolve(config=config)[model_section]
         return model.eval()
 
 
-class TransformerDecoderLayer(nn.Module):
+class TransformerLayer(nn.Module):
     def __init__(
         self,
         attention: CausalSelfAttention,
@@ -481,19 +487,13 @@ class TransformerDecoderLayer(nn.Module):
         self,
         x,
         attn_ctx: AttentionContext,
-        residual: torch.Tensor | None = None,
     ):
         if self.prenorm:
-            if residual is None:
-                x, residual = self.attention_norm(x), x
-            else:
-                x, residual = self.attention_norm(x, residual)
-            x = self.attention(x, attn_ctx=attn_ctx)
-            x, residual = self.feedforward_norm(x, residual)
-            x = self.feedforward(x)
+            x = self.attention(self.attention_norm(x), attn_ctx=attn_ctx) + x
+            x = self.feedforward(self.feedforward_norm(x)) + x
         else:
             raise NotImplementedError("Only prenorm is supported")
-        return x, residual
+        return x
 
 
 def format_bytes(bytes_val: int) -> str:

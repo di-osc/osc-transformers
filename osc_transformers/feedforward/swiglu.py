@@ -23,7 +23,7 @@ class SwiGLU(FeedForward):
         self.gate_proj = nn.Linear(in_dim, hidden_dim, bias=gate_bias)
         self.down_proj = nn.Linear(hidden_dim, in_dim, bias=down_bias)
 
-    @torch.compile
+    @torch.compile(fullgraph=True)
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         h = F.silu(self.gate_proj(x)) * self.up_proj(x)
         x = self.down_proj(h)

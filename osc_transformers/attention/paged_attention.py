@@ -15,7 +15,7 @@ from .base import AttentionContext, CausalSelfAttention
 class PagedAttention(CausalSelfAttention):
     """兼容MQA,GQA,MHA的因果自注意力机制层"""
 
-    # 当`n_heads=4`时MHA,GQA,MQA的区别:
+    # 当`num_heads=4`时MHA,GQA,MQA的区别:
     # ┌───┐┌───┐┌───┐┌───┐     ┌───┐    ┌───┐             ┌───┐
     # │ v ││ v ││ v ││ v │     │ v │    │ v │             │ v │
     # └───┘└───┘└───┘└───┘     └───┘    └───┘             └───┘
@@ -199,12 +199,13 @@ class PagedAttention(CausalSelfAttention):
             device=device,
             dtype=dtype,
         )
-        self.rope_cos_cache, self.rope_sin_cache = build_rope_cache(
-            max_length,
-            self.head_dim,
-            base=self.rope_base,
-            device=device,
-        )
+        if self.apply_rope:
+            self.rope_cos_cache, self.rope_sin_cache = build_rope_cache(
+                max_length,
+                self.head_dim,
+                base=self.rope_base,
+                device=device,
+            )
 
     def clear_cache(self):
         self.k_cache = torch.tensor([])
