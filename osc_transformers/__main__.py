@@ -5,7 +5,7 @@ from random import randint
 from jsonargparse import auto_cli
 from loguru import logger
 
-from osc_transformers import AutoregressiveTransformer, SamplingParams, Sequence
+from osc_transformers import AutoRegressiveTransformer, SamplingParams, Sequence
 
 
 def bench(
@@ -25,7 +25,7 @@ def bench(
     """
     if not Path(cfg).exists():
         raise FileNotFoundError(f"Config file {cfg} not found")
-    model = AutoregressiveTransformer.from_config(config=cfg)
+    model = AutoRegressiveTransformer.from_config(config=cfg)
     max_model_len = max_input_len + max_output_len
     model.setup(
         max_model_len=max_model_len,

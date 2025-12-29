@@ -9,4 +9,4 @@ from .sampler import *
 from .sequence import Sequence
 from .registry import Registry
 
-__all__ = ["AutoregressiveTransformer", "Registry", "Sequence"]
+__all__ = ["Sequence", "Registry", "AutoRegressiveTransformer"]

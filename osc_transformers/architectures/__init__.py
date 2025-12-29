@@ -1,3 +1,3 @@
-from .autoregressive import AutoregressiveTransformer
+from .autoregressive import AutoRegressiveTransformer
 
-__all__ = ["AutoregressiveTransformer"]
+__all__ = ["AutoRegressiveTransformer"]

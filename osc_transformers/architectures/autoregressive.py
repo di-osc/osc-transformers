@@ -22,8 +22,8 @@ from ..scheduler import Scheduler
 from ..sequence import Sequence
 
 
-@Registry.architecture.register("Autoregressive")
-class AutoregressiveTransformer(nn.Module):
+@Registry.architecture.register("AutoRegressiveTransformer")
+class AutoRegressiveTransformer(nn.Module):
     def __init__(
         self,
         num_layers: int,
@@ -60,7 +60,7 @@ class AutoregressiveTransformer(nn.Module):
         self.scheduler: Scheduler = None
 
         self.stop_event = Event()
-        self.name = "AutoregressiveTransformer"
+        self.name = "AutoRegressiveTransformer"
         self.run_thread = None
 
         self.dtype = None
@@ -70,7 +70,7 @@ class AutoregressiveTransformer(nn.Module):
         input_ids: torch.Tensor,
         attn_ctx: AttentionContext,
     ):
-        """Forward pass of the AutoregressiveTransformer.
+        """Forward pass of the AutoRegressiveTransformer.
 
         Args:
             input_ids (torch.Tensor): Input token ids. shape = (seq_length)
@@ -350,7 +350,7 @@ class AutoregressiveTransformer(nn.Module):
             self.graph_vars = {}
         torch.cuda.empty_cache()
 
-    def batch(self, seqs: list[Sequence], timeout: float | None = None):
+    def batch(self, seqs: list[Sequence], timeout: float | None = None) -> list[Sequence]:
         assert self.run_thread is not None, f"{self.name} is not running, please call setup() first"
         response_queue = Queue()
         num_seqs = len(seqs)
@@ -446,7 +446,7 @@ class AutoregressiveTransformer(nn.Module):
         config: Config | str | Path,
         model_section: str = "model",
         empty_init: bool = False,
-    ) -> "AutoregressiveTransformer":
+    ) -> "AutoRegressiveTransformer":
         if isinstance(config, Path):
             config = Config().from_disk(config)
         elif isinstance(config, str):
@@ -459,9 +459,9 @@ class AutoregressiveTransformer(nn.Module):
             raise ValueError(f"{model_section} section is required")
         if empty_init:
             with torch.device("meta"):
-                model: AutoregressiveTransformer = Registry.resolve(config=config)[model_section]
+                model: AutoRegressiveTransformer = Registry.resolve(config=config)[model_section]
         else:
-            model: AutoregressiveTransformer = Registry.resolve(config=config)[model_section]
+            model: AutoRegressiveTransformer = Registry.resolve(config=config)[model_section]
         return model.eval()
 
 
