@@ -42,10 +42,10 @@ class Scheduler:
             self.response_queues[seq.seq_id] = Queue()
 
     def schedule(self) -> tuple[list[Sequence], bool]:
-        # prefill
         scheduled_seqs = []
         num_seqs = 0
         num_batched_tokens = 0
+        # prefill
         while self.waiting and num_seqs < self.max_num_seqs:
             seq = self.waiting[0]
             if num_batched_tokens + len(seq) > self.max_num_batched_tokens:
@@ -54,14 +54,15 @@ class Scheduler:
             if not self.block_manager.can_allocate(seq):
                 logger.warning(f"can not allocate block for seq {seq.seq_id} at prefill")
                 break
-            num_seqs += 1
             self.block_manager.allocate(seq)
             num_batched_tokens += len(seq) - seq.num_cached_tokens
             seq.status = SequenceStatus.RUNNING
-            self.waiting.popleft()
+            seq = self.waiting.popleft()
             self.running.append(seq)
             scheduled_seqs.append(seq)
+            num_seqs += 1
         if scheduled_seqs:
+            logger.info(f"scheduled {len(scheduled_seqs)} seqs at prefill")
             return scheduled_seqs, True
 
         # decode
