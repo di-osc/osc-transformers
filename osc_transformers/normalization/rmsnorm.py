@@ -12,10 +12,24 @@ class TorchRMSNorm(Normalization):
         self.eps = eps
 
     @torch.compile
-    def rms_forward(
+    def rms_forward_2d(
         self,
         x: torch.Tensor,
     ) -> torch.Tensor:
+        assert x.ndim == 2, f"RMSNorm only supports 2D input, but got {x.ndim}D input"
+        orig_dtype = x.dtype
+        x = x.float()
+        var = x.pow(2).mean(dim=-1, keepdim=True)
+        x.mul_(torch.rsqrt(var + self.eps))
+        x = x.to(orig_dtype).mul_(self.weight)
+        return x
+
+    @torch.compile
+    def rms_forward_3d(
+        self,
+        x: torch.Tensor,
+    ) -> torch.Tensor:
+        assert x.ndim == 3, f"RMSNorm only supports 3D input, but got {x.ndim}D input"
         orig_dtype = x.dtype
         x = x.float()
         var = x.pow(2).mean(dim=-1, keepdim=True)
@@ -43,6 +57,6 @@ class TorchRMSNorm(Normalization):
         residual: torch.Tensor | None = None,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         if residual is None:
-            return self.rms_forward(x)
+            return self.rms_forward_2d(x) if x.ndim == 2 else self.rms_forward_3d(x)
         else:
             return self.add_rms_forward(x, residual)

@@ -5,8 +5,8 @@ import torch
 import torch.nn as nn
 import triton
 import triton.language as tl
-from flash_attn import flash_attn_varlen_func, flash_attn_with_kvcache
 
+from ..ops.attention import attn_varlen, attn_with_paged_kvcache
 from ..registry import Registry
 from .base import AttentionContext, CausalSelfAttention
 
@@ -81,6 +81,7 @@ class PagedAttention(CausalSelfAttention):
         self.apply_rope = apply_rope
         self.rope_base = rope_base
         self.scale = scale or 1.0 / math.sqrt(self.head_dim)
+        self.block_size = None
 
     def forward(
         self,
@@ -151,27 +152,26 @@ class PagedAttention(CausalSelfAttention):
         if attn_ctx.is_prefill:
             if attn_ctx.block_tables is not None:  # prefix cache
                 k, v = k_cache, v_cache
-            o = flash_attn_varlen_func(
-                q,
-                k,
-                v,
+            o = attn_varlen(
+                q=q,
+                k=k,
+                v=v,
                 max_seqlen_q=attn_ctx.max_seqlen_q,
                 cu_seqlens_q=attn_ctx.cu_seqlens_q,
                 max_seqlen_k=attn_ctx.max_seqlen_k,
                 cu_seqlens_k=attn_ctx.cu_seqlens_k,
                 softmax_scale=self.scale,
-                causal=True,
-                block_table=attn_ctx.block_tables,
+                is_causal=True,
             )
         else:  # decode
-            o = flash_attn_with_kvcache(
-                q.unsqueeze(1),
-                k_cache,
-                v_cache,
+            o = attn_with_paged_kvcache(
+                q=q.unsqueeze(1),
+                k_cache=k_cache,
+                v_cache=v_cache,
                 cache_seqlens=attn_ctx.context_lens,
                 block_table=attn_ctx.block_tables,
                 softmax_scale=self.scale,
-                causal=True,
+                is_causal=True,
             )
         return o
 
@@ -183,6 +183,7 @@ class PagedAttention(CausalSelfAttention):
         dtype: torch.dtype,
         device: torch.device,
     ) -> None:
+        self.block_size = block_size
         self.k_cache = torch.zeros(
             num_kvcache_blocks,
             block_size,
