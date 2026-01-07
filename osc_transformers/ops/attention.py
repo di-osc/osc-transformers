@@ -1,4 +1,3 @@
-from typing import Optional
 
 import torch
 from flash_attn import flash_attn_varlen_func, flash_attn_with_kvcache
@@ -12,7 +11,7 @@ def attn_varlen(
     cu_seqlens_k: torch.Tensor,
     max_seqlen_q: int,
     max_seqlen_k: int,
-    softmax_scale: Optional[float] = None,
+    softmax_scale: float | None = None,
     is_causal: bool = True,
 ) -> torch.Tensor:
     return flash_attn_varlen_func(
@@ -34,7 +33,7 @@ def attn_with_paged_kvcache(
     v_cache: torch.Tensor,
     cache_seqlens: torch.Tensor,
     block_table: torch.Tensor,
-    softmax_scale: Optional[float] = None,
+    softmax_scale: float | None = None,
     is_causal: bool = True,
 ) -> torch.Tensor:
     return flash_attn_with_kvcache(
