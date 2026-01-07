@@ -2,17 +2,17 @@ from pathlib import Path
 
 import torch
 
-from osc_transformers import SamplingParams, Sequence, TransformerDecoder
+from osc_transformers import AutoRegressiveTransformer, SamplingParams, Sequence
 from osc_transformers.normalization import Normalization
 from osc_transformers.registry import Registry
 
 # 使用配置文件构建模型
 config = Path(__file__).parent / "configs" / "qwen3-0_6B.cfg"
-model = TransformerDecoder.from_config(config=config, empty_init=True)
+model = AutoRegressiveTransformer.from_config(config=config, empty_init=True)
 
 config = """
 [model]
-@architecture = "TransformerDecoder"
+@architecture = "AutoRegressiveTransformer"
 num_layers = 28
 prenorm = "True"
 
@@ -62,7 +62,7 @@ bias = "False"
 in_dim = 1024
 eps = 0.000001
 """
-model = TransformerDecoder.from_config(config=config, empty_init=True)
+model = AutoRegressiveTransformer.from_config(config=config, empty_init=True)
 
 
 # 自定义Normalization组件构建模型
@@ -78,7 +78,7 @@ class LayerNorm(Normalization):
 
 config = """
 [model]
-@architecture = "TransformerDecoder"
+@architecture = "AutoRegressiveTransformer"
 num_layers = 28
 prenorm = "True"
 
@@ -129,7 +129,7 @@ in_dim = 1024
 eps = 0.000001
 """
 
-model = TransformerDecoder.from_config(config=config, empty_init=False)
+model = AutoRegressiveTransformer.from_config(config=config, empty_init=False)
 
 
 ## setup model
