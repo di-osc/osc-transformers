@@ -1,7 +1,6 @@
-from typing import Optional, Union
+from functools import lru_cache
 
 import torch
-
 import triton
 import triton.language as tl
 
@@ -74,19 +73,39 @@ def rotary_kernel(
 
     if not INTERLEAVED:
         # Load the 1st and 2nd halves of X, do calculation, then store to 1st and 2nd halves of OUT
-        X = X + (rh[:, None, None] * stride_x_nheads + rm[None, :, None] * stride_x_seqlen + rk_half[None, None, :] * stride_x_headdim)
-        OUT = OUT + (rh[:, None, None] * stride_out_nheads + rm[None, :, None] * stride_out_seqlen + rk_half[None, None, :] * stride_out_headdim)
+        X = X + (
+            rh[:, None, None] * stride_x_nheads
+            + rm[None, :, None] * stride_x_seqlen
+            + rk_half[None, None, :] * stride_x_headdim
+        )
+        OUT = OUT + (
+            rh[:, None, None] * stride_out_nheads
+            + rm[None, :, None] * stride_out_seqlen
+            + rk_half[None, None, :] * stride_out_headdim
+        )
         mask = (rh[:, None, None] < nheads) & (rm[None, :, None] < seqlen) & (rk_half[None, None, :] < ROTARY_DIM_HALF)
         x0 = tl.load(X, mask=mask, other=0.0).to(tl.float32)
-        x1 = tl.load(X + ROTARY_DIM_HALF * stride_x_headdim, mask=mask, other=0.0,).to(tl.float32)
+        x1 = tl.load(
+            X + ROTARY_DIM_HALF * stride_x_headdim,
+            mask=mask,
+            other=0.0,
+        ).to(tl.float32)
         o0 = x0 * cos - x1 * sin
         o1 = x0 * sin + x1 * cos
         tl.store(OUT, o0, mask=mask)
         tl.store(OUT + ROTARY_DIM_HALF * stride_out_headdim, o1, mask=mask)
     else:
         rk = tl.arange(0, BLOCK_K)
-        X = X + (rh[:, None, None] * stride_x_nheads + rm[None, :, None] * stride_x_seqlen + rk[None, None, :] * stride_x_headdim)
-        OUT = OUT + (rh[:, None, None] * stride_out_nheads + rm[None, :, None] * stride_out_seqlen + rk[None, None, :] * stride_out_headdim)
+        X = X + (
+            rh[:, None, None] * stride_x_nheads
+            + rm[None, :, None] * stride_x_seqlen
+            + rk[None, None, :] * stride_x_headdim
+        )
+        OUT = OUT + (
+            rh[:, None, None] * stride_out_nheads
+            + rm[None, :, None] * stride_out_seqlen
+            + rk[None, None, :] * stride_out_headdim
+        )
         mask = (rh[:, None, None] < nheads) & (rm[None, :, None] < seqlen) & (rk[None, None, :] < ROTARY_DIM)
         x = tl.load(X, mask=mask, other=0.0).to(tl.float32)
         x0, x1 = tl.split(tl.reshape(x, [BLOCK_H, BLOCK_M, BLOCK_K // 2, 2]))
@@ -96,20 +115,20 @@ def rotary_kernel(
         tl.store(OUT, o, mask=mask)
 
 
-def apply_rotary(
+def apply_rope(
     x: torch.Tensor,
     cos: torch.Tensor,
     sin: torch.Tensor,
-    seqlen_offsets: Union[int, torch.Tensor] = 0,
-    cu_seqlens: Optional[torch.Tensor] = None,
-    max_seqlen: Optional[int] = None,
+    seqlen_offsets: int | torch.Tensor = 0,
+    cu_seqlens: torch.Tensor | None = None,
+    max_seqlen: int | None = None,
     interleaved=False,
     inplace=False,
     conjugate=False,
 ) -> torch.Tensor:
     """
     Arguments:
-        x: (batch, seqlen, nheads, headdim) if cu_seqlens is None
+        x: (seqlen, nheads, headdim) if cu_seqlens is None
             else (total_seqlen, nheads, headdim).
         cos: (seqlen_ro, rotary_dim / 2)
         sin: (seqlen_ro, rotary_dim / 2)
@@ -117,11 +136,15 @@ def apply_rotary(
         cu_seqlens: (batch + 1,) or None
         max_seqlen: int
     Returns:
-        y: (batch, seqlen, nheads, headdim)
+        y: (seqlen, nheads, headdim)
     """
     is_varlen = cu_seqlens is not None
     if not is_varlen:
-        batch, seqlen, nheads, headdim = x.shape
+        if len(x.shape) == 4:
+            batch, seqlen, nheads, headdim = x.shape
+        else:
+            seqlen, nheads, headdim = x.shape
+            batch = 1
     else:
         assert max_seqlen is not None, "If cu_seqlens is passed in, then max_seqlen must be passed"
         total_seqlen, nheads, headdim = x.shape
@@ -180,3 +203,45 @@ def apply_rotary(
             BLOCK_H=2,
         )
     return output
+
+
+@lru_cache(maxsize=1)
+def build_rope_cache(
+    seq_len: int,
+    n_elem: int,
+    device: torch.device = "cpu",
+    base: int = 10000,
+    condense_ratio: int = 1,
+    repeat: bool = False,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Enhanced Transformer with Rotary Position Embedding.
+    Derived from: https://github.com/labmlai/annotated_deep_learning_paper_implementations/blob/master/labml_nn/
+    transformers/rope/__init__.py. MIT License:
+    https://github.com/labmlai/annotated_deep_learning_paper_implementations/blob/master/license.
+
+    Args:
+        seq_len: The sequence length.
+        n_elem: The number of elements in the embedding.
+        device: The device to build the cache on.
+        base: The base of the exponential.
+        condense_ratio: The condense ratio.
+        repeat: Whether to repeat the cache for each head.
+    returns:
+        cos: The cosine cache. shape: (seq_len, n_elem/2) if repeat is False else (seq_len, n_elem)
+        sin: The sine cache. shape: (seq_len, n_elem/2) if repeat is False else (seq_len, n_elem)
+    """
+    # $\Theta = {\theta_i = 10000^{\frac{2(i-1)}{d}}, i \in [1, 2, ..., \frac{d}{2}]}$
+    theta = 1.0 / (base ** (torch.arange(0, n_elem, 2, device=device, dtype=torch.float) / n_elem))
+
+    # Create position indexes `[0, 1, ..., seq_len - 1]`
+    seq_idx = torch.arange(seq_len, device=device, dtype=torch.float) / condense_ratio
+
+    # Calculate the product of position index and $\theta_i$
+    if repeat:
+        idx_theta = torch.outer(seq_idx, theta).repeat(1, 2)
+    else:
+        idx_theta = torch.outer(seq_idx, theta)
+
+    cos, sin = torch.cos(idx_theta), torch.sin(idx_theta)
+
+    return cos, sin

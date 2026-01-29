@@ -1,5 +1,4 @@
 import math
-from functools import lru_cache
 
 import torch
 import torch.nn as nn
@@ -7,6 +6,7 @@ import triton
 import triton.language as tl
 
 from ..ops.attention import attn_varlen, attn_with_paged_kvcache
+from ..ops.rotary import apply_rope, build_rope_cache
 from ..registry import Registry
 from .base import AttentionContext, CausalSelfAttention
 
@@ -111,10 +111,10 @@ class PagedAttention(CausalSelfAttention):
         if self.apply_rope:
             cos = self.rope_cos_cache[attn_ctx.input_pos]
             sin = self.rope_sin_cache[attn_ctx.input_pos]
-            q, k = q.transpose(0, 1), k.transpose(0, 1)
-            q = apply_rope(q, cos, sin)
-            k = apply_rope(k, cos, sin)
-            q, k = q.transpose(0, 1), k.transpose(0, 1)
+            # q, k = q.transpose(0, 1), k.transpose(0, 1)
+            q = apply_rope(q, cos, sin, cu_seqlens=attn_ctx.cu_seqlens_q, max_seqlen=attn_ctx.max_seqlen_q)
+            k = apply_rope(k, cos, sin, cu_seqlens=attn_ctx.cu_seqlens_k, max_seqlen=attn_ctx.max_seqlen_k)
+            # q, k = q.transpose(0, 1), k.transpose(0, 1)
 
         o = self.scaled_dot_product_attention(q, k, v, attn_ctx)
 
@@ -202,10 +202,7 @@ class PagedAttention(CausalSelfAttention):
         )
         if self.apply_rope:
             self.rope_cos_cache, self.rope_sin_cache = build_rope_cache(
-                max_length,
-                self.head_dim,
-                base=self.rope_base,
-                device=device,
+                max_length, self.head_dim, base=self.rope_base, device=device, repeat=False
             )
 
     def clear_cache(self):
@@ -221,59 +218,6 @@ class PagedAttention(CausalSelfAttention):
     @property
     def kv_head_dim(self) -> int:
         return self.head_dim
-
-
-@torch.compile
-def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
-    head_dim = x.size(-1)
-    dtype = x.dtype
-    x = x.to(torch.float32)
-    x1 = x[..., : head_dim // 2]  # (B, nh, T, hs/2)
-    x2 = x[..., head_dim // 2 :]  # (B, nh, T, hs/2)
-    rotated = torch.cat((-x2, x1), dim=-1)  # (B, nh, T, hd)
-    roped = (x * cos) + (rotated * sin)
-    return roped.to(dtype)
-
-
-@lru_cache(maxsize=1)
-def build_rope_cache(
-    seq_len: int,
-    n_elem: int,
-    device: torch.device = "cpu",
-    base: int = 10000,
-    condense_ratio: int = 1,
-    repeat: bool = True
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Enhanced Transformer with Rotary Position Embedding.
-    Derived from: https://github.com/labmlai/annotated_deep_learning_paper_implementations/blob/master/labml_nn/
-    transformers/rope/__init__.py. MIT License:
-    https://github.com/labmlai/annotated_deep_learning_paper_implementations/blob/master/license.
-
-    Args:
-        seq_len: The sequence length.
-        n_elem: The number of elements in the embedding.
-        device: The device to build the cache on.
-        base: The base of the exponential.
-        condense_ratio: The condense ratio.
-    returns:
-        cos: The cosine cache. shape: (seq_len, hd/2)
-        sin: The sine cache. shape: (seq_len, n_elem/2)
-    """
-    # $\Theta = {\theta_i = 10000^{\frac{2(i-1)}{d}}, i \in [1, 2, ..., \frac{d}{2}]}$
-    theta = 1.0 / (base ** (torch.arange(0, n_elem, 2, device=device, dtype=torch.float) / n_elem))
-
-    # Create position indexes `[0, 1, ..., seq_len - 1]`
-    seq_idx = torch.arange(seq_len, device=device, dtype=torch.float) / condense_ratio
-
-    # Calculate the product of position index and $\theta_i$
-    if repeat:
-        idx_theta = torch.outer(seq_idx, theta).repeat(1, 2)
-    else:
-        idx_theta = torch.outer(seq_idx, theta)
-
-    cos, sin = torch.cos(idx_theta), torch.sin(idx_theta)
-
-    return cos, sin
 
 
 @triton.jit
