@@ -242,6 +242,7 @@ def build_rope_cache(
     device: torch.device = "cpu",
     base: int = 10000,
     condense_ratio: int = 1,
+    repeat: bool = True
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Enhanced Transformer with Rotary Position Embedding.
     Derived from: https://github.com/labmlai/annotated_deep_learning_paper_implementations/blob/master/labml_nn/
@@ -265,7 +266,10 @@ def build_rope_cache(
     seq_idx = torch.arange(seq_len, device=device, dtype=torch.float) / condense_ratio
 
     # Calculate the product of position index and $\theta_i$
-    idx_theta = torch.outer(seq_idx, theta).repeat(1, 2)
+    if repeat:
+        idx_theta = torch.outer(seq_idx, theta).repeat(1, 2)
+    else:
+        idx_theta = torch.outer(seq_idx, theta)
 
     cos, sin = torch.cos(idx_theta), torch.sin(idx_theta)
 
