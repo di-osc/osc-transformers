@@ -472,7 +472,6 @@ class TransformerLayer(nn.Module):
         attention_norm: Normalization,
         feedforward: FeedForward,
         feedforward_norm: Normalization,
-        prenorm: bool = True,
         layer_id: int = 0,
     ):
         super().__init__()
@@ -480,7 +479,6 @@ class TransformerLayer(nn.Module):
         self.attention_norm = attention_norm
         self.feedforward = feedforward
         self.feedforward_norm = feedforward_norm
-        self.prenorm = prenorm
         self.layer_id = layer_id
 
     def forward(
@@ -488,11 +486,8 @@ class TransformerLayer(nn.Module):
         x,
         attn_ctx: AttentionContext,
     ):
-        if self.prenorm:
-            x = self.attention(self.attention_norm(x), attn_ctx=attn_ctx) + x
-            x = self.feedforward(self.feedforward_norm(x)) + x
-        else:
-            raise NotImplementedError("Only prenorm is supported")
+        x = self.attention(self.attention_norm(x), attn_ctx=attn_ctx) + x
+        x = self.feedforward(self.feedforward_norm(x)) + x
         return x
 
 
