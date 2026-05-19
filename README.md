@@ -5,7 +5,7 @@
 **🚀 Configuration-driven Modular Transformer Model Building Framework**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.8%2B-red.svg)](https://pytorch.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.10%2B-red.svg)](https://pytorch.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 *Flexible, efficient, and extensible Transformer model building tools*
@@ -32,9 +32,8 @@
 
 ## 📦 Installation
 
-- Install [latest version PyTorch](https://pytorch.org/)
-- Install [flash-attn](https://github.com/Dao-AILab/flash-attention): It is recommended to download the official pre-built whl package to avoid compilation issues
-- Install osc-transformers
+- Install [PyTorch 2.10+](https://pytorch.org/)
+- Install osc-transformers. Attention kernels are implemented with Triton.
 ```bash
 pip install osc-transformers
 ```
@@ -128,7 +127,7 @@ osc-transformers bench examples/configs/qwen3-0_6B.cfg --num_seqs 64 --max_input
 The core code of this project mainly comes from the following projects:
 
 - [nano-vllm](https://github.com/GeeeekExplorer/nano-vllm)
-- [Flash Attention](https://github.com/Dao-AILab/flash-attention)
+- [Triton](https://github.com/triton-lang/triton)
 - [Liger-Kernel](https://github.com/linkedin/Liger-Kernel)
 
 ## 🤝 Contributing

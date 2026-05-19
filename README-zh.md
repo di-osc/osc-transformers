@@ -5,7 +5,7 @@
 **🚀 基于配置文件的模块化 Transformer 模型构建框架**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.8%2B-red.svg)](https://pytorch.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.10%2B-red.svg)](https://pytorch.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 *灵活、高效、可扩展的 Transformer 模型构建工具*
@@ -30,9 +30,8 @@
 
 ## 📦 安装
 
-- 安装[最新版本pytorch](https://pytorch.org/)
-- 安装[flash-attn](https://github.com/Dao-AILab/flash-attention): 建议下载官方构建好的whl包，避免编译问题
-- 安装osc-transformers
+- 安装 [PyTorch 2.10+](https://pytorch.org/)
+- 安装 osc-transformers。注意力 kernel 已由 Triton 实现。
 ```bash
 pip install osc-transformers
 ```
@@ -127,7 +126,7 @@ osc-transformers bench examples/configs/qwen3-0_6B.cfg --num_seqs 64 --max_input
 本项目核心代码主要来自于以下项目：
 
 - [nano-vllm](https://github.com/GeeeekExplorer/nano-vllm)
-- [Flash Attention](https://github.com/Dao-AILab/flash-attention)
+- [Triton](https://github.com/triton-lang/triton)
 - [Liger-Kernel](https://github.com/linkedin/Liger-Kernel)
 
 ## 🤝 贡献

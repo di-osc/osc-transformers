@@ -231,15 +231,25 @@ def store_kvcache_kernel(
     slot_mapping_ptr,
     D: tl.constexpr,
 ):
+    # One program stores all KV heads and head-dim values for one input token.
+    # key/value are flattened over (num_kv_heads, head_dim), so D is the number
+    # of contiguous scalar elements copied for each token.
     idx = tl.program_id(0)
     key_offsets = idx * key_stride + tl.arange(0, D)
     value_offsets = idx * value_stride + tl.arange(0, D)
     key = tl.load(key_ptr + key_offsets)
     value = tl.load(value_ptr + value_offsets)
+
+    # slot_mapping maps this logical token to its physical KV-cache slot:
+    #   physical slot = block_id * block_size + offset_inside_block
+    # During CUDA graph replay, padded rows are filled with -1. Those rows must
+    # not write to the cache, otherwise slot=-1 would address memory before the
+    # beginning of k_cache/v_cache.
     slot = tl.load(slot_mapping_ptr + idx)
     cache_offsets = slot * D + tl.arange(0, D)
-    tl.store(k_cache_ptr + cache_offsets, key)
-    tl.store(v_cache_ptr + cache_offsets, value)
+    mask = slot >= 0
+    tl.store(k_cache_ptr + cache_offsets, key, mask=mask)
+    tl.store(v_cache_ptr + cache_offsets, value, mask=mask)
 
 
 def store_kvcache(
