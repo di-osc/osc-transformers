@@ -2,9 +2,8 @@ import math
 
 import pytest
 import torch
-from torch.nn.attention.varlen import varlen_attn
 
-from osc_transformers.ops.attention import attn_varlen, attn_with_paged_kvcache
+from osc_transformers.ops.attention import attn_varlen, attn_with_flash_kvcache, attn_with_paged_kvcache
 
 
 def _torch_attn_varlen(
@@ -78,6 +77,27 @@ def _torch_paged_kvcache_decode(
     return torch.stack(outputs, dim=0).unsqueeze(1)
 
 
+def test_flash_kvcache_decode_requires_flash_attn(monkeypatch):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "flash_attn":
+            raise ModuleNotFoundError("No module named 'flash_attn'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    q = torch.empty(1, 1, 2, 8)
+    k_cache = torch.empty(1, 256, 1, 8)
+    v_cache = torch.empty(1, 256, 1, 8)
+    cache_seqlens = torch.ones(1, dtype=torch.int32)
+    block_table = torch.zeros(1, 1, dtype=torch.int32)
+
+    with pytest.raises(ImportError, match="flash-attn"):
+        attn_with_flash_kvcache(q, k_cache, v_cache, cache_seqlens, block_table)
+
+
 @pytest.mark.parametrize("is_causal", [True, False])
 @pytest.mark.parametrize("n_q_heads,n_kv_heads", [(4, 4), (8, 2)])
 @pytest.mark.parametrize("head_dim", [32, 64, 128])
@@ -139,16 +159,7 @@ def test_triton_attn_varlen_matches_torch_varlen(dtype):
         softmax_scale=scale,
         is_causal=True,
     )
-    expected = varlen_attn(
-        q,
-        k,
-        v,
-        cu_q,
-        cu_k,
-        max(q_lens),
-        max(q_lens),
-        is_causal=True,
-    )
+    expected = _torch_attn_varlen(q.float(), k.float(), v.float(), cu_q, cu_k, scale, is_causal=True).to(dtype)
 
     torch.testing.assert_close(actual, expected, rtol=1e-2, atol=1e-2)
 

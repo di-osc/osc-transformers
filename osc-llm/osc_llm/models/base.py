@@ -1,0 +1,237 @@
+import json
+from collections.abc import Generator
+from pathlib import Path
+
+import torch
+import torch.nn as nn
+from confection import Config
+from loguru import logger
+from osc_transformers import SamplingParams, Sequence, AutoRegressiveTransformer
+
+from ..registry import Registry
+
+
+class CausalLM:
+    """Base class for Hugging Face causal language models.
+
+    In most cases, subclasses only need to implement the `weight_map` and
+    `osc_config` properties."""
+
+    hf_architecture: str
+
+    def __init__(self, checkpoint_dir: str):
+        self.checkpoint_dir = Path(checkpoint_dir)
+        with open(self.checkpoint_dir / "config.json") as f:
+            self.hf_config: dict = json.load(f)
+        assert (
+            self.hf_architecture in self.hf_config["architectures"]
+        ), f"Only support {self.hf_architecture} model, current model is {self.hf_config['architectures']}"
+        self.model: AutoRegressiveTransformer = self.load()
+        cfg_path = self.checkpoint_dir / "model.cfg"
+        if not cfg_path.exists():
+            self.osc_config.to_disk(cfg_path)
+            logger.info(f"✅ Saved model config to {cfg_path}")
+        self.dtype = None
+
+    def setup(
+        self,
+        eos_id: int | list,
+        gpu_memory_utilization: float | None = None,
+        device: str = "cuda",
+        **kwargs,
+    ):
+        """Initialize runtime with device, precision, memory, and EOS settings."""
+        max_model_len = self.hf_config.get("max_length", 4096)
+        dtype = self.hf_config.get("torch_dtype", "bfloat16")
+        dtype = str_to_dtype(dtype)
+        self.dtype = dtype
+        self.model.setup(
+            max_model_len=max_model_len,
+            gpu_memory_utilization=gpu_memory_utilization,
+            eos=eos_id,
+            dtype=dtype,
+            device=device,
+            model_name=self.hf_architecture,
+            **kwargs,
+        )
+
+    def stream(self, token_ids: list[int], sampling_params: SamplingParams | None = None) -> Generator[str, None, None]:
+        """Yield decoded text progressively for a single prompt."""
+        if sampling_params is None:
+            sampling_params = SamplingParams(max_generate_tokens=self.model.max_model_len)
+        seq = Sequence(
+            token_ids=token_ids,
+            sampling_params=sampling_params,
+        )
+        return self.model.stream(seq=seq)
+
+    def batch(
+        self,
+        batch_token_ids: list[list[int]],
+        sampling_params: list[SamplingParams] | None = None,
+    ) -> list[list[int]]:
+        """Generate completion token ids for a batch of prompts."""
+        if sampling_params is None:
+            sampling_params = [SamplingParams() for _ in batch_token_ids]
+        seqs = [
+            Sequence(token_ids=token_ids, sampling_params=sampling_params)
+            for token_ids, sampling_params in zip(batch_token_ids, sampling_params)
+        ]
+        seqs = self.model.batch(seqs=seqs)
+        batch_completion_token_ids = []
+        for seq in seqs:
+            completion_token_ids = seq.completion_token_ids
+            batch_completion_token_ids.append(completion_token_ids)
+        return batch_completion_token_ids
+
+    @property
+    def weight_map(self) -> dict[str, str]:
+        """Mapping used for converting parameter names between formats."""
+        raise NotImplementedError("Method not implemented")
+
+    @property
+    def osc_config(self) -> Config:
+        """Return configuration used to build an osc-transformers model."""
+        raise NotImplementedError("Method not implemented")
+
+    def convert_checkpoint(self) -> dict[str, torch.Tensor]:
+        """Convert a Hugging Face checkpoint into osc-transformers state_dict."""
+        pytorch_model = Path(self.checkpoint_dir) / "pytorch_model.bin"
+        pytorch_idx_file = Path(self.checkpoint_dir) / "pytorch_model.bin.index.json"
+        safetensors_model = Path(self.checkpoint_dir) / "model.safetensors"
+        safetensors_idx_file = Path(self.checkpoint_dir) / "model.safetensors.index.json"
+        if pytorch_model.exists() or pytorch_idx_file.exists():
+            sd = self.convert_pytorch_format()
+        elif safetensors_model.exists() or safetensors_idx_file.exists():
+            sd = self.convert_safetensor_format()
+        if (
+            not pytorch_model.exists()
+            and not safetensors_model.exists()
+            and not pytorch_idx_file.exists()
+            and not safetensors_idx_file.exists()
+        ):
+            raise FileNotFoundError("No pytorch_model.bin or model.safetensors found")
+        return sd
+
+    def convert_pytorch_format(self):
+        sd = {}
+        wmap = self.weight_map
+        index_file = self.checkpoint_dir / "pytorch_model.bin.index.json"
+        if index_file.exists():
+            with open(index_file) as f:
+                index = json.load(f)
+            files = [self.checkpoint_dir / file for file in set(index["weight_map"].values())]
+        else:
+            files = [self.checkpoint_dir / "pytorch_model.bin"]
+        assert len(files) > 0, "No pytorch model file found"
+        for file in files:
+            weights = torch.load(str(file), map_location="cpu", weights_only=True, mmap=True)
+            for key in weights:
+                if key not in wmap:
+                    logger.warning(f"{key} not in wmap")
+                    continue
+                sd[wmap.pop(key)] = weights[key]
+        assert len(wmap) == 0, f"Some weights are not in the weight map: {wmap}"
+        return sd
+
+    def convert_safetensor_format(self):
+        sd = {}
+        wmap = self.weight_map
+        index_file = self.checkpoint_dir / "model.safetensors.index.json"
+        if index_file.exists():
+            with open(index_file) as f:
+                index = json.load(f)
+            files = [self.checkpoint_dir / file for file in set(index["weight_map"].values())]
+        else:
+            files = [self.checkpoint_dir / "model.safetensors"]
+        assert len(files) > 0, "No pytorch model file found"
+        try:
+            from safetensors import safe_open
+        except Exception:
+            raise ImportError("Please install safetensors first, run `pip install safetensors`")
+        for file in files:
+            with safe_open(file, framework="pt") as f:
+                for key in f.keys():
+                    if key not in wmap:
+                        logger.warning(f"{key} not in wmap")
+                        continue
+                    sd[wmap.pop(key)] = f.get_tensor(key)
+        assert len(wmap) == 0, f"Some weights are not in the weight map: {wmap}"
+        return sd
+
+    def build_model(
+        self,
+        config: dict | str | Path | Config,
+        model_section: str = "model",
+        empty_init: bool = True,
+        return_config: bool = False,
+    ) -> torch.nn.Module | tuple[torch.nn.Module, Config]:
+        """Build a model from a configuration.
+
+        Args:
+            config (Union[Dict, str, Path, Config]): the configuration to build the model from, can be a dictionary, a path to a file or a Config object.
+            model_section (str, optional): the section to look for the model in the configuration. Defaults to 'model'.
+            empty_init (bool, optional): whether to initialize the model with empty weights. Defaults to True.
+            return_config (bool, optional): whether to return the configuration as well. Defaults to False.
+
+        Returns:
+            torch.nn.Module: the model built from the configuration.
+        """
+        model = AutoRegressiveTransformer.from_config(config, empty_init=empty_init, model_section=model_section)
+        if return_config:
+            return model, config
+        return model
+
+    def load_checkpoint(self, model: nn.Module, states: dict[str, torch.Tensor]) -> nn.Module:
+        model.load_state_dict(
+            state_dict=states,
+            assign=True,
+        )
+        return model.eval()
+
+    def load(self) -> nn.Module:
+        """Construct the model and load converted checkpoint weights."""
+        model = self.build_model(config=self.osc_config, empty_init=True)
+        states = self.convert_checkpoint()
+        model = self.load_checkpoint(model=model, states=states)
+        return model
+
+    def get_default_presision(self) -> str:
+        """Return default torch precision string from config or global default."""
+        if "torch_dtype" in self.hf_config:
+            torch_precision = str_to_dtype(self.hf_config["torch_dtype"])
+            return torch_precision
+        return torch.get_default_dtype()
+
+
+def str_to_dtype(dtype: str) -> torch.dtype:
+    if dtype == "bfloat16":
+        return torch.bfloat16
+    elif dtype == "float16":
+        return torch.float16
+    elif dtype == "float32":
+        return torch.float32
+    elif dtype == "float64":
+        return torch.float64
+    else:
+        raise ValueError(f"Unsupported dtype: {dtype}")
+
+
+def get_supported_hf_models():
+    """Return the list of supported Hugging Face model architectures."""
+    hf_models = []
+    for model in Registry.models.get_all():
+        hf_models.append(model)
+    return hf_models
+
+
+def load_causal_lm(checkpoint_dir: str) -> CausalLM:
+    config_path = Path(checkpoint_dir) / "config.json"
+    with open(config_path) as f:
+        config = json.load(f)
+    model_name = config["architectures"][0]
+    allowed_models = get_supported_hf_models()
+    if model_name not in allowed_models:
+        logger.error(f"Model {model_name} is not supported. Supported models are: {allowed_models}")
+    model: CausalLM = Registry.models.get(model_name)(checkpoint_dir)
+    return model

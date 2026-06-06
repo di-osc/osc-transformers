@@ -67,17 +67,25 @@ class AutoRegressiveTransformer(nn.Module):
 
     def forward(
         self,
-        input_ids: torch.Tensor,
-        attn_ctx: AttentionContext,
+        input_ids: torch.Tensor | None = None,
+        attn_ctx: AttentionContext | None = None,
+        inputs_embeds: torch.Tensor | None = None,
     ):
         """Forward pass of the AutoRegressiveTransformer.
 
         Args:
             input_ids (torch.Tensor): Input token ids. shape = (seq_length)
             attn_ctx (AttentionContext): Attention context.
+            inputs_embeds (torch.Tensor): Precomputed input embeddings. shape = (seq_length, hidden_size)
         """
-        assert len(input_ids.shape) == 1, "input must be 1d"
-        x = self.embedding(input_ids)
+        if (input_ids is None) == (inputs_embeds is None):
+            raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
+        if inputs_embeds is None:
+            assert len(input_ids.shape) == 1, "input must be 1d"
+            x = self.embedding(input_ids)
+        else:
+            assert len(inputs_embeds.shape) == 2, "inputs_embeds must be 2d"
+            x = inputs_embeds
         for layer in self.layers:
             x = layer(x, attn_ctx=attn_ctx)
         if self.prenorm:
@@ -110,8 +118,9 @@ class AutoRegressiveTransformer(nn.Module):
                 break
         logger.info("🛑 inference loop stopped, you can call setup() again to start a new loop")
 
-    def prepare_prefill(self, seqs: list[Sequence]) -> tuple[torch.Tensor, AttentionContext]:
+    def prepare_prefill(self, seqs: list[Sequence]) -> tuple[torch.Tensor | None, torch.Tensor | None, AttentionContext]:
         input_ids = []
+        input_embeds = []
         positions = []
         cu_seqlens_q = [0]
         cu_seqlens_k = [0]
@@ -119,9 +128,16 @@ class AutoRegressiveTransformer(nn.Module):
         max_seqlen_k = 0
         slot_mapping = []
         block_tables = None
+        use_prompt_embeds = any(seq.prompt_embeds is not None for seq in seqs)
+        if use_prompt_embeds and not all(seq.prompt_embeds is not None for seq in seqs):
+            raise ValueError("All sequences in an inputs_embeds prefill batch must provide prompt_embeds")
         for seq in seqs:
             seqlen = len(seq)
             input_ids.extend(seq[seq.num_cached_tokens :])
+            if use_prompt_embeds:
+                if seqlen > seq.num_prompt_tokens:
+                    raise ValueError("prompt_embeds can only be used for prompt prefill")
+                input_embeds.append(seq.prompt_embeds[seq.num_cached_tokens : seqlen])
             positions.extend(list(range(seq.num_cached_tokens, seqlen)))
             seqlen_q = seqlen - seq.num_cached_tokens
             seqlen_k = seqlen
@@ -140,7 +156,16 @@ class AutoRegressiveTransformer(nn.Module):
                 slot_mapping.extend(list(range(start, end)))
         if cu_seqlens_k[-1] > cu_seqlens_q[-1]:  # prefix cache
             block_tables = self.prepare_block_tables(seqs)
-        input_ids = torch.tensor(input_ids, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
+        if use_prompt_embeds:
+            input_ids = None
+            input_embeds = torch.cat(input_embeds, dim=0)
+            if input_embeds.device.type == "cpu":
+                input_embeds = input_embeds.pin_memory().cuda(non_blocking=True)
+            else:
+                input_embeds = input_embeds.cuda(non_blocking=True)
+        else:
+            input_embeds = None
+            input_ids = torch.tensor(input_ids, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
         positions = torch.tensor(positions, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
         cu_seqlens_q = torch.tensor(cu_seqlens_q, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
         cu_seqlens_k = torch.tensor(cu_seqlens_k, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
@@ -155,14 +180,14 @@ class AutoRegressiveTransformer(nn.Module):
             slot_mapping=slot_mapping,
             block_tables=block_tables,
         )
-        return input_ids, attn_ctx
+        return input_ids, input_embeds, attn_ctx
 
     @torch.inference_mode()
     def prefill(self, seqs: list[Sequence]) -> list[Sequence]:
         if not seqs:
             return seqs
-        input_ids, attn_ctx = self.prepare_prefill(seqs)
-        logits = self.compute_logits(self.forward(input_ids, attn_ctx), attn_ctx)
+        input_ids, input_embeds, attn_ctx = self.prepare_prefill(seqs)
+        logits = self.compute_logits(self.forward(input_ids=input_ids, inputs_embeds=input_embeds, attn_ctx=attn_ctx), attn_ctx)
         temperatures = self.prepare_sample([seq for seq in seqs])
         token_ids = self.sampler(logits, temperatures).tolist()
         for seq, token_id in zip(seqs, token_ids):

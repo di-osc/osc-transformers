@@ -1,0 +1,26 @@
+[project]
+name = "osc-asr"
+version = "0.1.0"
+description = "ASR components built on osc-transformers"
+readme = "README.md"
+authors = [
+    { name = "wangmengdi", email = "790990241@qq.com" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "osc-transformers",
+    "confection>=0.1.4",
+    "loguru>=0.7.3",
+    "librosa",
+    "numpy",
+    "safetensors",
+    "soundfile",
+    "transformers",
+]
+
+[tool.uv.sources]
+osc-transformers = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

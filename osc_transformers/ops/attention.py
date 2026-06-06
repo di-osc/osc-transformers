@@ -1,7 +1,11 @@
 import torch
 import triton
 import triton.language as tl
-from torch.nn.attention.varlen import varlen_attn
+
+try:
+    from torch.nn.attention.varlen import varlen_attn as torch_varlen_attn
+except ModuleNotFoundError:
+    torch_varlen_attn = None
 
 
 @triton.jit
@@ -162,15 +166,37 @@ def attn_varlen(
     if softmax_scale != default_scale:
         q = q * (softmax_scale / default_scale)
 
-    return varlen_attn(
+    if torch_varlen_attn is not None:
+        return torch_varlen_attn(
+            q,
+            k,
+            v,
+            cu_seqlens_q,
+            cu_seqlens_k,
+            max_seqlen_q,
+            max_seqlen_k,
+            is_causal=is_causal,
+        )
+
+    try:
+        from flash_attn import flash_attn_varlen_func
+    except ImportError as exc:
+        raise ImportError(
+            "torch.nn.attention.varlen is unavailable in this torch version. "
+            "Install flash-attn or use torch>=2.10 for varlen prefill attention."
+        ) from exc
+
+    return flash_attn_varlen_func(
         q,
         k,
         v,
-        cu_seqlens_q,
-        cu_seqlens_k,
-        max_seqlen_q,
-        max_seqlen_k,
-        is_causal=is_causal,
+        cu_seqlens_q=cu_seqlens_q,
+        cu_seqlens_k=cu_seqlens_k,
+        max_seqlen_q=max_seqlen_q,
+        max_seqlen_k=max_seqlen_k,
+        dropout_p=0.0,
+        softmax_scale=None,
+        causal=is_causal,
     )
 
 
@@ -259,3 +285,40 @@ def attn_with_paged_kvcache(
             num_warps=num_warps,
         )
     return output
+
+
+def attn_with_flash_kvcache(
+    q: torch.Tensor,
+    k_cache: torch.Tensor,
+    v_cache: torch.Tensor,
+    cache_seqlens: torch.Tensor,
+    block_table: torch.Tensor,
+    softmax_scale: float | None = None,
+    is_causal: bool = True,
+) -> torch.Tensor:
+    try:
+        from flash_attn import flash_attn_with_kvcache
+    except ImportError as exc:
+        raise ImportError(
+            "flash-attn is required for OSC_DECODE_ATTENTION_BACKEND=flash_attn. "
+            "Install flash-attn or use the default Triton decode attention backend."
+        ) from exc
+
+    assert q.dim() == 4 and q.shape[1] == 1, "decode attention expects q shape (batch, 1, nheads, head_dim)"
+    assert k_cache.dim() == 4 and v_cache.dim() == 4, "k_cache and v_cache must be 4D paged tensors"
+    assert cache_seqlens.numel() == q.shape[0], "cache_seqlens length must match batch size"
+    assert block_table.shape[0] >= q.shape[0], "block_table batch dimension must cover q batch size"
+
+    page_block_size = k_cache.shape[1]
+    if page_block_size % 256 != 0:
+        raise ValueError("flash-attn paged KV cache requires page_block_size to be a multiple of 256")
+
+    return flash_attn_with_kvcache(
+        q.contiguous(),
+        k_cache.contiguous(),
+        v_cache.contiguous(),
+        cache_seqlens=cache_seqlens.contiguous(),
+        block_table=block_table.contiguous(),
+        softmax_scale=softmax_scale,
+        causal=is_causal,
+    )

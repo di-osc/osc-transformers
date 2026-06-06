@@ -1,11 +1,12 @@
 import math
+import os
 
 import torch
 import torch.nn as nn
 import triton
 import triton.language as tl
 
-from ..ops.attention import attn_varlen, attn_with_paged_kvcache
+from ..ops.attention import attn_varlen, attn_with_flash_kvcache, attn_with_paged_kvcache
 from ..ops.rotary import apply_rope, build_rope_cache
 from ..registry import Registry
 from .base import AttentionContext, CausalSelfAttention
@@ -164,7 +165,9 @@ class PagedAttention(CausalSelfAttention):
                 is_causal=True,
             )
         else:  # decode
-            o = attn_with_paged_kvcache(
+            decode_backend = os.environ.get("OSC_DECODE_ATTENTION_BACKEND", "triton")
+            decode_attn = attn_with_flash_kvcache if decode_backend == "flash_attn" else attn_with_paged_kvcache
+            o = decode_attn(
                 q=q.unsqueeze(1),
                 k_cache=k_cache,
                 v_cache=v_cache,

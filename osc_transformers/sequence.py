@@ -2,6 +2,8 @@ from copy import copy
 from enum import Enum, auto
 from itertools import count
 
+import torch
+
 from .sampler import SamplingParams
 
 
@@ -23,11 +25,15 @@ class Sequence:
         stream_response: bool = False,
         block_size: int = 256,
         ignore_eos: bool = False,
+        prompt_embeds: torch.Tensor | None = None,
     ):
         self.seq_id = next(Sequence.counter)
         self.status = SequenceStatus.WAITING
         self.token_ids = copy(token_ids)
         self.num_prompt_tokens = len(token_ids)
+        if prompt_embeds is not None and prompt_embeds.shape[0] != self.num_prompt_tokens:
+            raise ValueError("prompt_embeds must have the same sequence length as token_ids")
+        self.prompt_embeds = prompt_embeds
         self.num_cached_tokens = 0
         self.block_table = []
         self.block_size = block_size

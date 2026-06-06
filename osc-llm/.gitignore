@@ -1,0 +1,11 @@
+*.ipynb
+dist
+*.pyc
+*.log
+*.checkpoint
+checkpoints
+data
+lightning_logs
+*.lock
+osc_llm.egg-info
+*.pt

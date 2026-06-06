@@ -9,8 +9,8 @@ authors = [
 requires-python = ">=3.10"
 dependencies = [
     # core
-    "torch==2.10.0",
-    "triton==3.6.0",
+    "torch==2.9.0",
+    "triton==3.5.0",
     # config系统
     "confection>=0.1.4",
     "catalogue>=2.0.1",
@@ -35,8 +35,20 @@ name = "pypi"
 url = "https://pypi.org/simple"
 default = true
 
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+triton = { index = "pytorch-cu130" }
+
 [project.scripts]
 osc-transformers = "osc_transformers.__main__:run_cli"
+
+[tool.uv.workspace]
+members = ["osc-asr", "osc-llm"]
 
 [tool.ruff]
 line-length = 120

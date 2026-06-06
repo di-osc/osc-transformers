@@ -1,0 +1,240 @@
+import json
+import re
+from collections.abc import Generator
+from pathlib import Path
+from typing import List
+
+import torch
+from sentencepiece import SentencePieceProcessor
+from tokenizers import Tokenizer as HFTokenizer
+
+from .prompt_template import PromptTemplate
+
+
+class Tokenizer:
+    def __init__(
+        self,
+        checkpoint_dir: Path | str,
+    ) -> None:
+        """Tokenizer wrapper supporting SentencePiece and HF Tokenizers.
+
+        Discovers tokenizer files and special token ids from the checkpoint
+        directory and loads a matching processor backend."""
+        checkpoint_dir = Path(checkpoint_dir)
+        self.checkpoint_dir = checkpoint_dir
+        if not checkpoint_dir.exists():
+            raise NotADirectoryError(f"The checkpoint directory does not exist: {str(checkpoint_dir)}")
+        self.chat_template: PromptTemplate = PromptTemplate.from_checkpoint_dir(checkpoint_dir)
+        self.use_bos = self.check_if_bos_token_used(checkpoint_dir)
+        self.bos_id = None
+        self.eos_id = None
+
+        # some checkpoints have both files, `.model` takes precedence
+        if (vocabulary_path := checkpoint_dir / "tokenizer.model").is_file():
+            self.tokenizer_path = checkpoint_dir / "tokenizer.model"
+            self.processor: SentencePieceProcessor = SentencePieceProcessor(model_file=str(vocabulary_path))
+            self.backend = "sentencepiece"
+            self.bos_id = self.processor.bos_id()
+            self.eos_id = self.processor.eos_id()
+
+        elif (vocabulary_path := checkpoint_dir / "tokenizer.json").is_file():
+            self.tokenizer_path = checkpoint_dir / "tokenizer.json"
+            self.processor: HFTokenizer = HFTokenizer.from_file(str(vocabulary_path))
+            self.backend = "huggingface"
+
+            if (special_tokens_path := checkpoint_dir / "tokenizer_config.json").is_file():
+                self.tokenizer_config_path = checkpoint_dir / "tokenizer_config.json"
+                with open(special_tokens_path) as fp:
+                    config = json.load(fp)
+                bos_token = config.get("bos_token")
+                self.bos_id = self.token_to_id(bos_token) if bos_token is not None else None
+                eos_token = config.get("eos_token")
+                self.eos_id = self.token_to_id(eos_token) if eos_token is not None else None
+            if (special_tokens_path := checkpoint_dir / "generation_config.json").is_file():
+                self.generation_config_path = checkpoint_dir / "generation_config.json"
+                with open(special_tokens_path) as fp:
+                    config = json.load(fp)
+                if self.bos_id is None:
+                    self.bos_id = config.get("bos_token_id")
+                if self.eos_id is None:
+                    self.eos_id = config.get("eos_token_id")
+        else:
+            raise NotImplementedError
+
+    @property
+    def vocab_size(self) -> int:
+        if self.backend == "huggingface":
+            return self.processor.get_vocab_size(with_added_tokens=False)
+        if self.backend == "sentencepiece":
+            return self.processor.vocab_size()
+        raise RuntimeError
+
+    def token_to_id(self, token: str) -> int:
+        if self.backend == "huggingface":
+            id_ = self.processor.token_to_id(token)
+        elif self.backend == "sentencepiece":
+            id_ = self.processor.piece_to_id(token)
+        else:
+            raise RuntimeError
+        if id_ is None:
+            raise ValueError(f"token {token!r} not found in the collection.")
+        return id_
+
+    def check_if_bos_token_used(self, checkpoint_dir: Path) -> bool:
+        if not (tokenizer_config_path := checkpoint_dir / "tokenizer_config.json").is_file():
+            return False
+        with open(tokenizer_config_path) as fp:
+            config = json.load(fp)
+        if any(config.get(check, False) for check in ("add_bos_token", "add_prefix_space")):
+            return True
+        # for examples that also use the Llama tokenizer, but do not have or set add_bos_token to True.
+        # ex: https://huggingface.co/stabilityai/StableBeluga2/blob/main/tokenizer_config.json#L2
+        return config.get("add_bos_token") is None and config.get("tokenizer_class") == "LlamaTokenizer"
+
+    def encode(
+        self,
+        string: str,
+        device: torch.device | None = None,
+        bos: bool | None = None,
+        eos: bool = False,
+        max_length: int = -1,
+        return_tensors: bool = False,
+    ) -> torch.Tensor | list[int]:
+        if self.backend == "huggingface":
+            self.processor: HFTokenizer
+            tokens = self.processor.encode(string, add_special_tokens=False).ids
+        elif self.backend == "sentencepiece":
+            self.processor: SentencePieceProcessor
+            tokens = self.processor.encode(string)
+        else:
+            raise RuntimeError
+        if bos or (bos is None and self.use_bos):
+            bos_id = self.bos_id
+            if bos_id is None:
+                raise NotImplementedError("This tokenizer does not have a defined a bos token")
+            tokens = [bos_id] + tokens
+        if eos:
+            tokens = tokens + [self.eos_id]
+        if max_length > 0:
+            tokens = tokens[:max_length]
+        if return_tensors:
+            return torch.tensor(tokens, dtype=torch.int64, device=device)
+        return tokens
+
+    def apply_chat_template(
+        self,
+        messages: list[dict],
+        add_generation_prompt: bool = True,
+        enable_thinking: bool = True,
+    ) -> str:
+        """Render messages into a single prompt string using chat template."""
+        assert self.chat_template, "Chat template is required for encoding messages"
+        string = self.chat_template.render(
+            messages=messages,
+            add_generation_prompt=add_generation_prompt,
+            enable_thinking=enable_thinking,
+        )
+        return string
+
+    def encode_messages(
+        self,
+        messages: list[dict],
+        add_generation_prompt: bool = True,
+        enable_thinking: bool = False,
+        device: torch.device | None = None,
+        bos: bool | None = None,
+        eos: bool = False,
+        max_length: int = -1,
+    ) -> List[int]:
+        """Encode chat messages directly, using the chat template internally."""
+        assert self.chat_template, "Chat template is required for encoding messages"
+        string = self.chat_template.render(
+            messages=messages,
+            add_generation_prompt=add_generation_prompt,
+            enable_thinking=enable_thinking,
+        )
+        return self.encode(string, device, bos, eos, max_length)
+
+    def decode(self, tensor: torch.Tensor | list[int]) -> str:
+        tensor = tensor if isinstance(tensor, torch.Tensor) else torch.tensor(tensor)
+        tokens = [tensor.item()] if tensor.ndim == 0 else tensor.tolist()
+        return self.processor.decode(tokens)
+
+    def decode_stream(
+        self,
+        stream: Generator[torch.Tensor, None, None],
+    ) -> Generator[str, None, None]:
+        if self.backend == "huggingface":
+            buffer = torch.tensor([], dtype=torch.long)
+            text = ""
+            try:
+                for token in stream:
+                    if isinstance(token, int):
+                        token = torch.tensor(token)
+                    buffer = buffer.to(device=token.device)
+                    buffer = torch.cat((buffer, token.view(-1)))
+                    t = self.decode(buffer)
+                    if not self.has_special_chars(t):
+                        yield t
+                        text += t
+                        buffer = torch.tensor([], dtype=torch.long)
+            except KeyboardInterrupt:
+                # support stopping generation
+                return text
+        elif self.backend == "sentencepiece":
+            # sentencepiece does not support decoding token-by-token because it adds spaces based on the surrounding tokens
+            # meaning that we need to decode everything each time
+            so_far = torch.tensor([], dtype=torch.long)
+            decoded_so_far = ""
+            try:
+                for token in stream:
+                    if isinstance(token, list):
+                        token = torch.tensor(token)
+                    so_far = so_far.to(device=token.device)
+                    so_far = torch.cat((so_far, token.view(-1)))
+                    decoded_new = self.decode(so_far)
+                    if self.has_special_chars(decoded_new):
+                        # if the text contains special characters, it means that the tokenization is not complete
+                        continue
+                    yield decoded_new[len(decoded_so_far) :]
+                    decoded_so_far = decoded_new
+            except KeyboardInterrupt:
+                # support stopping generation
+                return decoded_so_far
+        else:
+            raise NotImplementedError(self.backend)
+
+    def save(self, save_dir: str):
+        save_dir = Path(save_dir)
+        if save_dir == self.checkpoint_dir:
+            return
+        import shutil
+
+        if self.backend == "huggingface":
+            shutil.copyfile(self.tokenizer_path, save_dir / self.tokenizer_path.name)
+            shutil.copyfile(self.tokenizer_config_path, save_dir / self.tokenizer_config_path.name)
+            shutil.copyfile(self.generation_config_path, save_dir / self.generation_config_path.name)
+        if self.backend == "sentencepiece":
+            shutil.copyfile(self.tokenizer_path, save_dir / self.tokenizer_path.name)
+
+    def has_special_chars(self, text: str) -> bool:
+        """Check if decoded text contains the Unicode replacement char (�).
+
+        This is primarily relevant when using SentencePiece, where a single
+        character may be split into multiple tokens and not merged back during
+        incremental decoding."""
+        return "�" in text
+
+    def split_thinking_content(self, content: str) -> tuple[str, str]:
+        """Extract optional <think>...</think> block and return (thinking, content).
+
+        If a <think> block exists, it is removed from the main content and
+        returned separately, both trimmed of surrounding whitespace and newlines."""
+        pattern = r"<think>(.*?)</think>"
+        match = re.search(pattern, content, re.DOTALL)
+        if match:
+            thinking_content = match.group(1)
+            thinking_content = f"<think>{thinking_content}</think>"
+            content = content.replace(thinking_content, "")
+            return thinking_content.strip().strip("\n"), content.strip().strip("\n")
+        return "", content
